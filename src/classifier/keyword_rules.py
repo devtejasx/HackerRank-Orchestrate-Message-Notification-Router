@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from src.classifier.enums import KeywordCategory
-from src.utils.text_utils import normalize_text
+from src.utils.text_utils import is_negated, normalize_text
 
 __all__ = [
     "DEFAULT_KEYWORDS",
@@ -79,7 +79,10 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
     KeywordCategory.PROMOTION: (
         "sale", "offer", "discount", "coupon", "deal", "cashback", "buy",
         "% off", "percent off", "flat off", "promo",
-        "shop now", "order now", "tap below", "book now", "grab",
+        "shop now", "order now", "book now", "grab",
+        # Deliberately absent: "tap below". It is a generic call to action
+        # used just as often by safety advisories and order updates as by
+        # marketing, so it separates nothing.
         "exclusive", "lowest price", "best price", "new arrival", "launch",
         "membership", "t&c apply", "terms apply",
         "starting at", "starts at", "per person", "selling",
@@ -90,8 +93,11 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         "event", "appointment", "schedule", "reminder", "rsvp", "invite",
         "invitation", "ceremony", "function", "gathering", "picnic",
         "cultural night", "annual day", "sports day", "parent teacher",
-        "pta", "bus", "pickup", "drop off", "session", "workshop",
-        "webinar", "class", "match", "tournament", "trip", "outing",
+        "pta", "bus", "session", "workshop",
+        "webinar", "class", "tournament", "trip", "outing",
+        # Deliberately absent: "match" and "pickup". Both are far more common
+        # in ordinary chatter ("watching the match", "pickup near Gate 2")
+        # than in scheduling, and both cost accuracy on the labelled examples.
     ),
     KeywordCategory.GREETING: (
         "good morning", "good evening", "good night", "good afternoon",
@@ -102,17 +108,28 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         "have a great day", "god bless", "blessings",
     ),
     KeywordCategory.FORWARD: (
-        "forwarded", "share", "viral",
-        "fwd", "as received", "forward to",
-        "pls forward", "please forward", "sharing here",
+        # "forward" rather than "forwarded" so the inflection group also
+        # covers "forwarding", "forwards" and "pls forward to".
+        "forward", "share", "viral", "fwd", "as received",
         "spread the word", "copy paste", "received on whatsapp",
+    ),
+    KeywordCategory.TRANSACTIONAL: (
+        "order", "delivery", "delivered", "dispatched", "shipped",
+        "out for delivery", "tracking", "track your", "booking", "booked",
+        "confirmed", "confirmation", "prescription", "claim status",
+        "your account", "statement", "feedback", "survey", "rate your",
+        "ticket", "reservation", "check in", "boarding", "refill",
+        "renewal", "expiry", "policy", "warranty", "service request",
     ),
     KeywordCategory.SPAM: (
         "limited offer", "buy now", "subscribe", "free gift",
         "limited time", "limited period", "act now", "hurry up",
         "dont miss", "don't miss", "last chance", "expire soon",
-        "expires soon", "unsubscribe", "no cost", "absolutely free",
+        "expires soon", "no cost", "absolutely free",
         "special price for you", "only for you", "100% free",
+        # Deliberately absent: "unsubscribe". It appears in the compliance
+        # footer of legitimate marketing ("Reply STOP to unsubscribe"), so it
+        # marks a lawful sender rather than a spammy one.
     ),
     KeywordCategory.SCAM: (
         # Required vocabulary.
@@ -215,6 +232,11 @@ class KeywordMatcher:
     def match(self, text: object) -> tuple[KeywordMatch, ...]:
         """Return every keyword hit in ``text``.
 
+        A hit is discarded when every one of its occurrences is negated, so
+        "we will never ask for OTP" does not register as a scam and "nothing
+        urgent" does not register as urgent. A term that appears both negated
+        and plainly still counts.
+
         Args:
             text: Raw message text. Missing or empty text yields no matches.
 
@@ -229,9 +251,16 @@ class KeywordMatcher:
         matches: list[KeywordMatch] = []
         for category, patterns in self._patterns.items():
             for phrase, pattern in patterns:
-                if pattern.search(normalized):
+                if self._has_unnegated_hit(normalized, pattern):
                     matches.append(KeywordMatch(category, phrase))
         return tuple(matches)
+
+    @staticmethod
+    def _has_unnegated_hit(text: str, pattern: re.Pattern[str]) -> bool:
+        """Whether ``pattern`` occurs at least once without a preceding negation."""
+        return any(
+            not is_negated(text, found.start()) for found in pattern.finditer(text)
+        )
 
     def match_by_category(
         self, text: object

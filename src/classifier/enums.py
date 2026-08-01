@@ -51,6 +51,10 @@ class KeywordCategory(StrEnum):
     FORWARD = "forward"
     SPAM = "spam"
     SCAM = "scam"
+    #: Order, delivery and booking status language. Added beyond the required
+    #: eight families because it is what separates a genuine business_update
+    #: ("your order has been packed") from a promotion ("50% off, tap below").
+    TRANSACTIONAL = "transactional"
 
 
 #: Categories whose presence indicates risk regardless of sender.

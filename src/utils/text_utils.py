@@ -37,6 +37,9 @@ __all__ = [
     "contains_currency",
     "contains_payment_symbol",
     "extract_upi_handles",
+    "NEGATION_CUES",
+    "NEGATION_WINDOW",
+    "is_negated",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -370,6 +373,53 @@ def contains_currency(value: object) -> bool:
     if any(char in _CURRENCY_SYMBOLS for char in text):
         return True
     return _CURRENCY_WORDS.search(text) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Negation
+# --------------------------------------------------------------------------- #
+
+#: Words that flip the meaning of a term appearing shortly after them.
+#:
+#: This matters more than it looks. A safety advisory reading "we will never
+#: ask for OTP" contains the single strongest scam keyword in the vocabulary
+#: while being the opposite of a scam, and a message signing off "nothing
+#: urgent" is the opposite of urgent. Without this guard both inverted.
+NEGATION_CUES: Final[frozenset[str]] = frozenset(
+    {
+        "not", "no", "never", "nothing", "none", "without", "avoid", "beware",
+        "dont", "doesnt", "didnt", "wont", "cant", "isnt", "arent", "wasnt",
+        "shouldnt", "wouldnt", "neither", "nor", "ignore", "disregard",
+        "don't", "doesn't", "didn't", "won't", "can't", "isn't", "aren't",
+        "wasn't", "shouldn't", "wouldn't",
+    }
+)
+
+#: How many preceding words are searched for a negation cue. Four covers
+#: "never ask for OTP" without reaching back into an unrelated clause.
+NEGATION_WINDOW: Final[int] = 4
+
+
+def is_negated(text: str, match_start: int, window: int = NEGATION_WINDOW) -> bool:
+    """Return whether a negation cue precedes the match at ``match_start``.
+
+    Only text *before* the match is inspected, so a term that itself begins
+    with a cue word - "no time", "cannot wait", "don't miss" - is never
+    treated as negating itself.
+
+    Args:
+        text: The text the match was found in.
+        match_start: Character offset where the matched term begins.
+        window: How many preceding words to inspect.
+
+    Returns:
+        ``True`` when the term should be read as negated.
+    """
+    if match_start <= 0:
+        return False
+    # Fold the typographic apostrophe so "don't" tokenises as one word.
+    preceding = _TOKEN.findall(text[:match_start].replace("’", "'"))
+    return any(word.lower() in NEGATION_CUES for word in preceding[-window:])
 
 
 def contains_payment_symbol(value: object) -> bool:
