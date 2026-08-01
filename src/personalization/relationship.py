@@ -69,13 +69,7 @@ class RelationshipStrengthCalculator(SignalCalculator):
                 high_reason=f"Substantial message history with this {label}.",
                 low_reason=f"Little or no history with this {label}.",
             ),
-            Contribution(
-                name="reciprocity",
-                value=stats.reply_rate,
-                weight=0.40,
-                high_reason=f"User actively converses with this {label}.",
-                low_reason=f"Communication with this {label} is one-way.",
-            ),
+            *self._reciprocity(stats, label),
             Contribution(
                 name="duration",
                 value=saturating(stats.span_days, DURATION_HALF_POINT),
@@ -87,6 +81,27 @@ class RelationshipStrengthCalculator(SignalCalculator):
                 value=decay(elapsed, DORMANCY_HALF_LIFE_DAYS),
                 weight=0.10,
                 low_reason=f"Relationship with this {label} has gone quiet.",
+            ),
+        )
+
+    @staticmethod
+    def _reciprocity(stats: InteractionStats, label: str) -> tuple[Contribution, ...]:
+        """Whether the recipient answers, where answering is the norm.
+
+        Omitted for businesses. People do not chat with brands, so a reply rate
+        near zero is the expected shape of a perfectly healthy commercial
+        relationship and scoring it as a weak tie would penalise every business
+        message for behaving normally.
+        """
+        if label == "business":
+            return ()
+        return (
+            Contribution(
+                name="reciprocity",
+                value=stats.reply_rate,
+                weight=0.40,
+                high_reason=f"User actively converses with this {label}.",
+                low_reason=f"Communication with this {label} is one-way.",
             ),
         )
 

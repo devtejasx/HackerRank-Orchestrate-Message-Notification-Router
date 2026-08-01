@@ -1,13 +1,17 @@
-"""The Phase 2 pipeline: message in, features and classification out.
+"""The analysis pipeline: message in, features, classification and signals out.
 
-This is the seam later phases attach to. Phase 3 (personalisation), Phase 4
-(routing) and Phase 5 (evidence retrieval) all consume
-:class:`MessageAnalysis` and none of them needs to know how features were
-extracted or how the verdict was reached.
+This is the seam later phases attach to. Phase 4 (routing) and Phase 5
+(evidence retrieval) consume :class:`MessageAnalysis` and neither needs to
+know how features were extracted, how the verdict was reached, or how the
+routing signals were scored.
 
     Incoming Message -> Repository lookup -> Feature extraction ->
     Keyword detection -> Context -> History -> Classification ->
-    Confidence -> MessageAnalysis
+    Confidence -> Routing signals -> MessageAnalysis
+
+Personalisation can be switched off with ``personalize=False``, in which case
+:attr:`MessageAnalysis.routing` is ``None`` and the pipeline behaves exactly as
+it did before Phase 3.
 
 Nothing here decides ``notify``, ``digest`` or ``mute``, and nothing writes
 ``output.csv``. Those are later phases by design.
@@ -29,6 +33,8 @@ from src.data.models import Message
 from src.data.repository import DataRepository
 from src.features.extractor import FeatureExtractor
 from src.features.feature_models import MessageFeatures
+from src.personalization.engine import PersonalizationEngine
+from src.personalization.signal_models import RoutingSignals
 
 __all__ = ["MessageAnalysis", "MessagePipeline"]
 
@@ -37,15 +43,20 @@ _LOGGER = config.get_logger("pipeline")
 
 @dataclass(frozen=True, slots=True)
 class MessageAnalysis:
-    """The complete Phase 2 result for one message.
+    """The complete analysis of one message, across every phase run so far.
 
     Attributes:
-        features: Everything extracted about the message.
-        classification: The category verdict, with confidence and reasoning.
+        features: Everything extracted about the message (Phase 2).
+        classification: The category verdict, with confidence and reasoning
+            (Phase 2).
+        routing: The personalised routing signals (Phase 3). ``None`` when
+            personalisation was switched off, which keeps every Phase 2 caller
+            working unchanged.
     """
 
     features: MessageFeatures
     classification: MessageClassification
+    routing: RoutingSignals | None = None
 
     @property
     def message_id(self) -> str:
@@ -58,11 +69,14 @@ class MessageAnalysis:
         return self.features.user_id
 
     def to_dict(self) -> dict[str, object]:
-        """Return a flat, JSON-friendly view of both halves."""
-        return {
+        """Return a flat, JSON-friendly view of every part."""
+        payload: dict[str, object] = {
             "features": self.features.to_dict(),
             "classification": self.classification.to_dict(),
         }
+        if self.routing is not None:
+            payload["routing"] = self.routing.to_dict()
+        return payload
 
 
 class MessagePipeline:
@@ -90,10 +104,15 @@ class MessagePipeline:
         weights: Weights = DEFAULT_WEIGHTS,
         confidence_model: ConfidenceModel = DEFAULT_CONFIDENCE,
         matcher: KeywordMatcher | None = None,
+        personalize: bool = True,
+        engine: PersonalizationEngine | None = None,
     ) -> None:
         self._repo = repo
         self._extractor = FeatureExtractor(repo, matcher=matcher)
         self._classifier = MessageClassifier(weights, confidence_model)
+        self._engine: PersonalizationEngine | None = None
+        if personalize:
+            self._engine = engine if engine is not None else PersonalizationEngine(repo)
 
     @classmethod
     def load(cls, dataset_dir: Path | None = None, **kwargs: object) -> Self:
@@ -124,17 +143,29 @@ class MessagePipeline:
         """The classifier in use."""
         return self._classifier
 
+    @property
+    def engine(self) -> PersonalizationEngine | None:
+        """The personalisation engine, or ``None`` when it is switched off."""
+        return self._engine
+
     def analyse(self, message: Message) -> MessageAnalysis:
-        """Extract features and classify one message.
+        """Run every enabled phase over one message.
 
         Args:
             message: The incoming message.
 
         Returns:
-            Both halves of the Phase 2 result.
+            Features and classification, plus routing signals when
+            personalisation is enabled.
         """
         features = self._extractor.extract(message)
-        return MessageAnalysis(features, self._classifier.classify(features))
+        classification = self._classifier.classify(features)
+        routing = (
+            self._engine.compute(features, classification)
+            if self._engine is not None
+            else None
+        )
+        return MessageAnalysis(features, classification, routing)
 
     def analyse_many(self, messages: Iterable[Message]) -> tuple[MessageAnalysis, ...]:
         """Analyse many messages, preserving input order."""

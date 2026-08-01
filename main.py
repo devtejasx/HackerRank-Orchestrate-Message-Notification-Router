@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 from src import config
@@ -27,6 +28,7 @@ from src.data import schema
 from src.data.loader import DatasetError
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
+from src.personalization.signal_models import RoutingSignal, RoutingSignals
 from src.pipeline import MessageAnalysis, MessagePipeline
 from src.utils.helpers import truncate
 
@@ -43,6 +45,15 @@ _BODY_PREVIEW = 300
 
 #: How many messages to analyse when no selection is given.
 _DEFAULT_SAMPLE_SIZE = 3
+
+#: How many routing reasons to list under a message.
+_MAX_ROUTING_REASONS = 6
+
+#: Signed strength below which a signal is shown as saying nothing.
+_NEGLIGIBLE_PUSH = 0.05
+
+#: Bars used to render the strongest possible push.
+_MAX_PUSH_BARS = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -280,6 +291,64 @@ def print_analysis(analysis: MessageAnalysis, repo: DataRepository) -> None:
         or "(none)",
     )
 
+    if analysis.routing is not None:
+        print_routing_signals(analysis.routing)
+
+
+def print_routing_signals(signals: RoutingSignals) -> None:
+    """Print every routing signal with its score, confidence and direction.
+
+    Phase 3 output only. No routing decision is made or implied; the arrows
+    show which way each signal argues, not what will be done about it.
+    """
+    print("\n  Routing signals (Phase 3 - inputs to a Phase 4 decision)")
+    print(
+        f"    {'signal':<24}{'score':>7}{'conf':>7}{'push':>8}   direction / evidence"
+    )
+    print(f"    {'-' * 68}")
+
+    for signal in signals.all_signals:
+        push = signal.signed_strength
+        print(
+            f"    {signal.name:<24}{signal.score:>7.2f}{signal.confidence:>7.2f}"
+            f"{push:>+8.2f}   {_push_marker(push)} {_push_note(signal, push)}"
+        )
+
+    boosting = signals.boosting
+    suppressing = signals.suppressing
+    print(
+        f"\n    {len(boosting)} signal(s) argue for sooner, "
+        f"{len(suppressing)} for later; "
+        f"{len(signals.all_signals) - len(boosting) - len(suppressing)} neutral"
+    )
+
+    if signals.reasons:
+        print("\n  Why")
+        for reason in signals.reasons[:_MAX_ROUTING_REASONS]:
+            print(f"    - {reason}")
+
+
+def _push_marker(push: float) -> str:
+    """Return a small bar showing how hard a signal pushes, and which way."""
+    if abs(push) < _NEGLIGIBLE_PUSH:
+        return " . "
+    magnitude = min(_MAX_PUSH_BARS, max(1, round(abs(push) * _MAX_PUSH_BARS)))
+    return ("^" if push > 0 else "v") * magnitude
+
+
+def _push_note(signal: RoutingSignal, push: float) -> str:
+    """Describe what this signal is currently arguing for.
+
+    Reports the effect rather than the polarity: a boosting signal with a low
+    score is arguing for *later*, and saying "raises priority" there would be
+    actively misleading.
+    """
+    if signal.confidence == 0.0:
+        return "not applicable to this message"
+    if abs(push) < _NEGLIGIBLE_PUSH:
+        return "says nothing either way"
+    return "argues for sooner" if push > 0 else "argues for later"
+
 
 def _flags(**named: bool) -> str:
     """Render only the flags that are set, or ``(none)``."""
@@ -314,6 +383,36 @@ def print_analysis_summary(analyses: tuple[MessageAnalysis, ...]) -> None:
     silent = sum(1 for a in analyses if a.features.is_empty_text)
     risky = sum(1 for a in analyses if a.classification.is_risk)
     print(f"  media-only messages: {silent}   risk-flagged (scam/spam): {risky}")
+
+    routed = [a.routing for a in analyses if a.routing is not None]
+    if routed:
+        print_signal_summary(routed)
+
+
+def print_signal_summary(routed: Sequence[RoutingSignals]) -> None:
+    """Print the distribution of each routing signal across many messages."""
+    _heading("PHASE 3 - ROUTING SIGNAL SUMMARY")
+    print(
+        f"  {'signal':<24}{'mean':>7}{'min':>7}{'max':>7}{'conf':>7}"
+        f"{'boost':>7}{'suppr':>7}"
+    )
+    print(f"  {'-' * 66}")
+
+    for name in (signal.name for signal in routed[0].all_signals):
+        values = [s.by_name(name) for s in routed]
+        scores = [signal.score for signal in values if signal is not None]
+        confidences = [signal.confidence for signal in values if signal is not None]
+        pushes = [signal.signed_strength for signal in values if signal is not None]
+        print(
+            f"  {name:<24}{sum(scores) / len(scores):>7.2f}{min(scores):>7.2f}"
+            f"{max(scores):>7.2f}{sum(confidences) / len(confidences):>7.2f}"
+            f"{sum(1 for p in pushes if p > 0):>7}{sum(1 for p in pushes if p < 0):>7}"
+        )
+
+    print(
+        "\n  These are inputs, not decisions. Phase 4 combines them into "
+        "notify / digest / mute."
+    )
 
 
 def _select_messages(
@@ -397,6 +496,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run the Phase 1 data-layer checks and stop.",
     )
+    parser.add_argument(
+        "--no-personalize",
+        action="store_true",
+        help="Skip Phase 3 routing signals and show Phase 2 output only.",
+    )
 
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
@@ -442,11 +546,15 @@ def main(argv: list[str] | None = None) -> int:
         print("  Phase 1 data layer is ready. No exceptions raised.")
         return 0
 
-    pipeline = MessagePipeline(repo)
+    pipeline = MessagePipeline(repo, personalize=not args.no_personalize)
     selected = _select_messages(repo, args)
     analyses = pipeline.analyse_many(selected)
 
-    _heading("PHASE 2 - FEATURES AND CLASSIFICATION")
+    _heading(
+        "PHASE 2 - FEATURES AND CLASSIFICATION"
+        if args.no_personalize
+        else "PHASE 2 + 3 - FEATURES, CLASSIFICATION AND ROUTING SIGNALS"
+    )
     for analysis in analyses if len(analyses) <= _DEFAULT_SAMPLE_SIZE else analyses[:1]:
         print_analysis(analysis, repo)
 
@@ -454,11 +562,12 @@ def main(argv: list[str] | None = None) -> int:
         print_analysis_summary(analyses)
 
     _heading("RESULT")
+    phases = "Phases 1 + 2" if args.no_personalize else "Phases 1 + 2 + 3"
+    print(f"  {phases} complete. {len(analyses)} message(s) analysed, no exceptions raised.")
     print(
-        f"  Phase 1 + Phase 2 complete. {len(analyses)} message(s) analysed, "
-        "no exceptions raised."
+        "  No routing decision was made: notify / digest / mute and output.csv "
+        "belong to Phase 4."
     )
-    print("  Routing and output generation are later phases and are not run here.")
     return 0
 
 

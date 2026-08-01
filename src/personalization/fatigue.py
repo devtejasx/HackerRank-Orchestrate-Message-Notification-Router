@@ -57,7 +57,7 @@ class FatigueCalculator(SignalCalculator):
         quiet_hours = self._quiet_hours_contribution(context)
 
         if not rows:
-            return (quiet_hours,)
+            return quiet_hours
 
         rolling = self._mean_sent(rows[-ROLLING_WINDOW_DAYS:])
         overall = self._mean_sent(rows)
@@ -93,19 +93,28 @@ class FatigueCalculator(SignalCalculator):
                 high_reason="Notification load is rising.",
                 low_reason="Notification load is falling.",
             ),
-            quiet_hours,
+            *quiet_hours,
         )
 
     @staticmethod
-    def _quiet_hours_contribution(context: SignalContext) -> Contribution:
-        """Landing inside do-not-disturb makes any interruption costlier."""
-        in_quiet_hours = context.features.context.in_quiet_hours
-        return Contribution(
-            name="quiet_hours",
-            value=1.0 if in_quiet_hours else 0.0,
-            weight=0.24,
-            high_reason="Message arrived inside the user's quiet hours.",
-            low_reason=None,
+    def _quiet_hours_contribution(context: SignalContext) -> tuple[Contribution, ...]:
+        """Landing inside do-not-disturb makes any interruption costlier.
+
+        Contributes only when the message *is* inside quiet hours. Arriving at
+        a normal hour is not evidence that the user is rested, and scoring it
+        as zero fatigue would drag the signal below neutral for the roughly
+        nine messages in ten that land outside the window - reading almost
+        every user as unfatigued regardless of their actual load.
+        """
+        if not context.features.context.in_quiet_hours:
+            return ()
+        return (
+            Contribution(
+                name="quiet_hours",
+                value=1.0,
+                weight=0.24,
+                high_reason="Message arrived inside the user's quiet hours.",
+            ),
         )
 
     @staticmethod
