@@ -1,26 +1,34 @@
-"""Hour 1 entry point: prove the data layer loads, validates, indexes and reads.
+"""Entry point: demonstrates the data layer (Phase 1) and analysis (Phase 2).
 
-This is a smoke test, not the solution. It performs no classification, no
-routing and writes no output file - those belong to later phases.
+Phase 1 loads, validates and indexes the dataset. Phase 2 turns each incoming
+message into features and a classification.
+
+No routing decision is made and no ``output.csv`` is written - both belong to
+later phases.
 
 Usage:
-    python main.py                 # schema summary, load, validate, index, lookups
-    python main.py --schema-only   # print the schema summary and stop
-    python main.py --strict        # treat validation warnings as failures
-    python main.py --log-level DEBUG
+    python main.py                      # phase 1 checks, then analyse a sample
+    python main.py --message msg_005    # analyse one specific message
+    python main.py --limit 10           # analyse the first 10 messages
+    python main.py --all                # analyse every message, with a summary
+    python main.py --schema-only        # print the dataset schema and stop
+    python main.py --data-only          # run the Phase 1 smoke test only
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 from src import config
+from src.classifier.enums import KeywordCategory
 from src.data import schema
 from src.data.loader import DatasetError
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
+from src.pipeline import MessageAnalysis, MessagePipeline
 from src.utils.helpers import truncate
 
 _LOGGER = config.get_logger("main")
@@ -30,6 +38,12 @@ _RULE_WIDTH = 78
 
 #: How much message text to show in the demo lookups.
 _TEXT_PREVIEW = 70
+
+#: How much message body to show in a full analysis report.
+_BODY_PREVIEW = 300
+
+#: How many messages to analyse when no selection is given.
+_DEFAULT_SAMPLE_SIZE = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -42,13 +56,18 @@ def _heading(title: str) -> None:
     print(f"\n{'=' * _RULE_WIDTH}\n{title}\n{'=' * _RULE_WIDTH}")
 
 
+def _subheading(title: str) -> None:
+    """Print a minor section rule."""
+    print(f"\n{title}\n{'-' * len(title)}")
+
+
 def _field(label: str, value: object) -> None:
     """Print one aligned ``label: value`` line."""
     print(f"  {label:<26} {value}")
 
 
 # --------------------------------------------------------------------------- #
-# Steps
+# Phase 1: dataset
 # --------------------------------------------------------------------------- #
 
 
@@ -85,7 +104,7 @@ def print_schema_summary() -> None:
 
 def print_dataset_summary(repo: DataRepository) -> None:
     """Print record counts, validation outcome and index sizes."""
-    _heading("LOAD SUMMARY")
+    _heading("PHASE 1 - DATA LAYER")
     print(repo.describe())
 
     report = repo.validation_report
@@ -95,23 +114,10 @@ def print_dataset_summary(repo: DataRepository) -> None:
             print(f"  - {issue}")
 
 
-def run_smoke_lookups(repo: DataRepository) -> None:
-    """Exercise every helper against ids discovered from the data itself.
+def run_data_lookups(repo: DataRepository) -> None:
+    """Exercise the repository helpers against ids discovered from the data."""
+    _heading("PHASE 1 - REPOSITORY LOOKUPS")
 
-    Nothing here is hardcoded to a particular id, so the smoke test keeps
-    working if the dataset is swapped or extended.
-    """
-    _heading("SMOKE LOOKUPS")
-
-    _lookup_user(repo)
-    _lookup_group(repo)
-    _lookup_business(repo)
-    _lookup_message_and_media(repo)
-    _lookup_negative_lookups(repo)
-
-
-def _lookup_user(repo: DataRepository) -> None:
-    """Find a well-connected user and read their context."""
     user_id = max(
         repo.index.history_by_user,
         key=lambda uid: len(repo.index.history_by_user[uid]),
@@ -119,38 +125,17 @@ def _lookup_user(repo: DataRepository) -> None:
     user = repo.get_user(user_id)
     assert user is not None, "index keys must resolve in users_by_id"
 
-    print("\n-- User --")
+    _subheading("User")
     _field("user_id", user.user_id)
     _field("quiet hours", user.quiet_hours)
-    _field("opened / replied 30d", f"{user.messages_opened_30d} / {user.messages_replied_30d}")
     _field("groups", len(repo.get_user_groups(user.user_id)))
-    _field("business relationships", len(repo.get_user_businesses(user.user_id)))
-    _field("incoming messages", len(repo.get_user_messages(user.user_id)))
-
-    history = repo.get_user_history(user.user_id, limit=3, newest_first=True)
     _field("history rows", len(repo.get_user_history(user.user_id)))
-    print("  most recent history:")
-    for record in history:
-        event = repo.get_message_event(record.message_id)
-        reaction = "no event" if event is None else f"opened={event.message_opened}"
+    for record in repo.get_user_history(user.user_id, limit=2, newest_first=True):
         print(
             f"    {record.message_id}  {record.created_at:%Y-%m-%d %H:%M}  "
-            f"{record.conversation_type:<9} {reaction:<14} "
             f"{truncate(record.message_text, _TEXT_PREVIEW)}"
         )
 
-    summary = repo.get_notification_summary(user.user_id)
-    if summary:
-        busiest = max(summary, key=lambda row: row.notifications_sent)
-        _field(
-            "busiest day",
-            f"{busiest.date} sent={busiest.notifications_sent} "
-            f"dismissed={busiest.notifications_dismissed}",
-        )
-
-
-def _lookup_group(repo: DataRepository) -> None:
-    """Find the largest group and read its membership."""
     group_id = max(
         repo.index.group_members_by_group,
         key=lambda gid: len(repo.index.group_members_by_group[gid]),
@@ -158,95 +143,213 @@ def _lookup_group(repo: DataRepository) -> None:
     group = repo.get_group(group_id)
     assert group is not None, "index keys must resolve in groups_by_id"
 
-    members = repo.get_group_members(group_id)
-    admins = repo.get_group_admins(group_id)
-    muted = sum(1 for member in members if member.group_muted_by_user)
+    _subheading("Group")
+    _field("group_id", f"{group.group_id} ({group.group_type})")
+    _field("membership rows", len(repo.get_group_members(group_id)))
+    _field("admins", [m.user_id for m in repo.get_group_admins(group_id)])
 
-    print("\n-- Group --")
-    _field("group_id", group.group_id)
-    _field("name / type", f"{group.group_name} ({group.group_type})")
-    _field("declared members", group.member_count)
-    _field("membership rows", len(members))
-    _field("admins", f"{len(admins)} -> {[m.user_id for m in admins]}")
-    _field("muted by", f"{muted} member(s)")
-    _field("history rows", len(repo.get_group_history(group_id)))
-
-    sample_member = members[0]
-    _field(
-        "example membership",
-        f"{sample_member.user_id} role={sample_member.role} "
-        f"joined={sample_member.joined_at} muted={sample_member.group_muted_by_user}",
-    )
-
-
-def _lookup_business(repo: DataRepository) -> None:
-    """Find the busiest business sender and read its reputation signals."""
-    business_id = max(
-        repo.index.history_by_business,
-        key=lambda bid: len(repo.index.history_by_business[bid]),
-    )
-    business = repo.get_business(business_id)
-    assert business is not None, "index keys must resolve in business_by_id"
-
-    print("\n-- Business --")
-    _field("business_id", business.business_id)
-    _field("display / brand", f"{business.display_name} / {business.brand_name}")
-    _field("category", business.category)
-    _field("verified", business.verified)
-    _field("official domain", business.official_domain)
-    _field("sender domain", business.domain_used_by_sender)
-    _field("domain matches official", business.sender_domain_matches_official)
-    _field("account age (days)", business.account_age_days)
-    _field("user reports 30d", business.user_reports_30d)
-    _field("users with a relationship", len(repo.get_business_users(business_id)))
-    _field("history rows", len(repo.get_business_history(business_id)))
-
-
-def _lookup_message_and_media(repo: DataRepository) -> None:
-    """Read one image message and one voice message end to end."""
-    print("\n-- Media --")
+    _subheading("Media")
     for media_type in ("image", "voice"):
-        message = _first_with_media(repo, media_type)
+        message = next(
+            (m for m in repo.get_messages() if m.media_type == media_type), None
+        )
         if message is None:
             print(f"  no {media_type} message present")
             continue
-
         path = repo.get_media_path(message)
-        metadata = (
-            repo.get_image(message.media_id)
-            if media_type == "image"
-            else repo.get_voice(message.media_id)
-        )
         size = path.stat().st_size if path is not None and path.is_file() else None
-
-        _field(f"{media_type} message", message.message_id)
-        _field("  media_id", message.media_id)
-        _field("  metadata row", metadata)
-        _field("  resolved path", path)
-        _field("  on disk", f"{size} bytes" if size is not None else "MISSING")
+        _field(
+            f"{media_type} ({message.media_id})",
+            f"{size} bytes" if size is not None else "MISSING",
+        )
 
 
-def _first_with_media(repo: DataRepository, media_type: str) -> MessageRecord | None:
-    """Return the first incoming message carrying ``media_type``, if any."""
-    return next(
-        (m for m in repo.get_messages() if m.media_type == media_type),
-        None,
+# --------------------------------------------------------------------------- #
+# Phase 2: analysis
+# --------------------------------------------------------------------------- #
+
+
+def print_analysis(analysis: MessageAnalysis, repo: DataRepository) -> None:
+    """Print one message's features and classification in full."""
+    features = analysis.features
+    result = analysis.classification
+    message = repo.get_message(features.message_id)
+
+    _subheading(f"Message {features.message_id}")
+
+    body = message.message_text if message else None
+    _field("recipient", features.user_id)
+    _field("conversation", features.conversation_type)
+    _field(
+        "sender",
+        features.sender_user_id or features.business_id or features.group_id or "-",
+    )
+    _field("received", f"{features.created_at:%Y-%m-%d %H:%M}")
+    if body:
+        print(f"  {'body':<26} {truncate(body, _BODY_PREVIEW)}")
+    else:
+        _field("body", f"(no text - {features.media_type or 'none'} attachment)")
+
+    print("\n  Features")
+    text = features.text
+    _field(
+        "  text",
+        f"{text.length} chars, {text.word_count} words, "
+        f"{text.sentence_count} sentence(s), {text.unique_token_count} unique tokens",
+    )
+    _field(
+        "  signals in text",
+        f"digits={text.digit_count} upper={text.uppercase_ratio:.0%} "
+        f"punct={text.punctuation_count} emoji={text.emoji_count}",
+    )
+    _field(
+        "  contains",
+        _flags(
+            url=text.contains_url,
+            email=text.contains_email,
+            phone=text.contains_phone_number,
+            currency=text.contains_currency,
+            payment=text.contains_payment_symbol,
+            media=features.has_media,
+        ),
+    )
+    if text.urls:
+        _field("  links", ", ".join(text.urls))
+
+    context = features.context
+    _field(
+        "  context",
+        f"forwarded={context.forwarded_count} quiet_hours={context.in_quiet_hours} "
+        f"group_muted={context.group_muted} sender_admin={context.sender_is_admin}",
+    )
+    if context.business_exists:
+        _field(
+            "  business",
+            f"verified={context.business_verified} "
+            f"domain_matches={context.business_domain_matches} "
+            f"age={context.business_age_days}d reports={context.business_reports_30d}",
+        )
+    if context.group_exists:
+        _field(
+            "  group",
+            f"size={context.group_size} volume_30d={context.group_message_volume_30d}",
+        )
+
+    history = features.history
+    _field(
+        "  history",
+        f"interactions={history.total_interactions} "
+        f"from_sender={history.sender_message_count} "
+        f"from_group={history.group_message_count} "
+        f"from_business={history.business_message_count}",
+    )
+    _field(
+        "  reception",
+        f"open={history.open_rate:.0%} reply={history.reply_rate:.0%} "
+        f"dismiss={history.dismiss_rate:.0%} report={history.report_rate:.0%}",
+    )
+    _field(
+        "  engagement",
+        f"user={history.user_engagement:.2f} group={history.group_engagement:.2f} "
+        f"business={history.business_engagement:.2f}",
+    )
+    _field(
+        "  notification load",
+        f"{context.avg_daily_notifications:.1f}/day, "
+        f"{context.notification_dismiss_rate:.0%} dismissed",
+    )
+
+    print("\n  Keywords")
+    if features.keywords.total_matches == 0:
+        _field("  matched", "(none)")
+    else:
+        for category in features.keywords.categories:
+            _field(f"  {category.value}", ", ".join(features.keywords.words(category)))
+
+    print("\n  Classification")
+    _field("  message_type", result.message_type.value.upper())
+    _field("  confidence", f"{result.confidence:.2f}")
+    _field("  runner-up", f"{result.runner_up.value if result.runner_up else '-'} "
+                          f"(margin {result.margin:.2f})")
+    _field("  reason", result.classification_reason)
+    _field(
+        "  scores",
+        ", ".join(
+            f"{category.value}={score:.2f}"
+            for category, score in sorted(result.scores.items(), key=lambda i: -i[1])
+        )
+        or "(none)",
     )
 
 
-def _lookup_negative_lookups(repo: DataRepository) -> None:
-    """Confirm unknown ids degrade to ``None`` / empty rather than raising."""
-    unknown = "does_not_exist"
-    print("\n-- Unknown ids --")
-    _field("get_user", repo.get_user(unknown))
-    _field("get_group", repo.get_group(unknown))
-    _field("get_business", repo.get_business(unknown))
-    _field("get_message", repo.get_message(unknown))
-    _field("get_image", repo.get_image(unknown))
-    _field("get_voice", repo.get_voice(unknown))
-    _field("get_group_members", repo.get_group_members(unknown))
-    _field("get_user_history", repo.get_user_history(unknown))
-    _field("get_message_events", repo.get_message_events(unknown))
+def _flags(**named: bool) -> str:
+    """Render only the flags that are set, or ``(none)``."""
+    present = [name for name, value in named.items() if value]
+    return ", ".join(present) if present else "(none)"
+
+
+def print_analysis_summary(analyses: tuple[MessageAnalysis, ...]) -> None:
+    """Print aggregate classification statistics across many messages."""
+    _heading("PHASE 2 - CLASSIFICATION SUMMARY")
+
+    types = Counter(a.classification.message_type.value for a in analyses)
+    print(f"  {len(analyses)} message(s) analysed\n")
+    width = max(len(name) for name in types) if types else 0
+    for name, count in types.most_common():
+        bar = "#" * count
+        print(f"  {name:<{width}}  {count:>3}  {bar}")
+
+    confidences = [a.classification.confidence for a in analyses]
+    print(
+        f"\n  confidence  min={min(confidences):.2f}  "
+        f"mean={sum(confidences) / len(confidences):.2f}  max={max(confidences):.2f}"
+    )
+
+    keyword_hits = Counter(
+        category.value
+        for a in analyses
+        for category in a.features.keywords.categories
+    )
+    print(f"  keyword families hit: {dict(keyword_hits.most_common())}")
+
+    silent = sum(1 for a in analyses if a.features.is_empty_text)
+    risky = sum(1 for a in analyses if a.classification.is_risk)
+    print(f"  media-only messages: {silent}   risk-flagged (scam/spam): {risky}")
+
+
+def _select_messages(
+    repo: DataRepository, args: argparse.Namespace
+) -> tuple[MessageRecord, ...]:
+    """Choose which messages the demo analyses, based on the CLI arguments."""
+    messages = repo.get_messages()
+    if args.message:
+        chosen = repo.get_message(args.message)
+        if chosen is None:
+            raise SystemExit(f"No such message: {args.message}")
+        return (chosen,)
+    if args.all:
+        return messages
+    if args.limit:
+        return messages[: args.limit]
+    return _representative_sample(messages, repo)
+
+
+def _representative_sample(
+    messages: tuple[MessageRecord, ...], repo: DataRepository
+) -> tuple[MessageRecord, ...]:
+    """Pick one message per conversation type, so the demo shows real variety.
+
+    Chosen from the data rather than hardcoded, so the demo keeps working if
+    the dataset is swapped.
+    """
+    chosen: list[MessageRecord] = []
+    for conversation_type in config.CONVERSATION_TYPES:
+        match = next(
+            (m for m in messages if m.conversation_type == conversation_type), None
+        )
+        if match is not None:
+            chosen.append(match)
+    return tuple(chosen[:_DEFAULT_SAMPLE_SIZE]) or messages[:_DEFAULT_SAMPLE_SIZE]
 
 
 # --------------------------------------------------------------------------- #
@@ -258,7 +361,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="main.py",
-        description="Hour 1 data-layer smoke test for the Message Notification Router.",
+        description=(
+            "Message Notification Router - Phase 1 data layer and Phase 2 "
+            "feature extraction and classification."
+        ),
     )
     parser.add_argument(
         "--dataset",
@@ -287,11 +393,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the schema summary and exit without loading the dataset.",
     )
+    parser.add_argument(
+        "--data-only",
+        action="store_true",
+        help="Run the Phase 1 data-layer checks and stop.",
+    )
+
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--message", metavar="ID", help="Analyse one message by id, e.g. msg_005."
+    )
+    selection.add_argument(
+        "--limit", type=int, metavar="N", help="Analyse the first N messages."
+    )
+    selection.add_argument(
+        "--all", action="store_true", help="Analyse every incoming message."
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the smoke test.
+    """Run the demo.
 
     Returns:
         ``0`` on success, ``1`` if the dataset could not be loaded or validated.
@@ -299,8 +421,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config.configure_logging(args.log_level)
 
-    print_schema_summary()
     if args.schema_only:
+        print_schema_summary()
         return 0
 
     try:
@@ -314,10 +436,30 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print_dataset_summary(repo)
-    run_smoke_lookups(repo)
+    run_data_lookups(repo)
+
+    if args.data_only:
+        _heading("RESULT")
+        print("  Phase 1 data layer is ready. No exceptions raised.")
+        return 0
+
+    pipeline = MessagePipeline(repo)
+    selected = _select_messages(repo, args)
+    analyses = pipeline.analyse_many(selected)
+
+    _heading("PHASE 2 - FEATURES AND CLASSIFICATION")
+    for analysis in analyses if len(analyses) <= _DEFAULT_SAMPLE_SIZE else analyses[:1]:
+        print_analysis(analysis, repo)
+
+    if len(analyses) > 1:
+        print_analysis_summary(analyses)
 
     _heading("RESULT")
-    print("  Hour 1 data layer is ready. No exceptions raised.")
+    print(
+        f"  Phase 1 + Phase 2 complete. {len(analyses)} message(s) analysed, "
+        "no exceptions raised."
+    )
+    print("  Routing and output generation are later phases and are not run here.")
     return 0
 
 
