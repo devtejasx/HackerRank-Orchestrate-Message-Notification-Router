@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -36,11 +37,21 @@ class TestCli:
         for section in (
             "PHASE 1 - DATA LAYER",
             "PHASE 1 - REPOSITORY LOOKUPS",
-            "PHASE 2 - FEATURES AND CLASSIFICATION",
+            "FEATURES, CLASSIFICATION AND ROUTING SIGNALS",
             "RESULT",
         ):
             assert section in out
         assert "no exceptions raised" in out
+
+    def test_no_personalize_stops_after_phase_two(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR", "--no-personalize"]
+        ) == 0
+        out = capsys.readouterr().out
+        assert "PHASE 2 - FEATURES AND CLASSIFICATION" in out
+        assert "Routing signals" not in out
 
     def test_single_message_report(
         self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
@@ -149,12 +160,44 @@ class TestOutputContent:
     def test_reports_a_category_not_a_routing_action(
         self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The verdict is a message_type; notify/digest/mute are Phase 4."""
+        """The verdict is a message_type; notify/digest/mute are Phase 4.
+
+        The words may appear in the disclaimer explaining what Phase 4 will do
+        with these signals, so the assertion is that no routing action is ever
+        *assigned* to the message, not that the words are absent.
+        """
         main.main(
             ["--dataset", str(dataset_dir), "--log-level", "ERROR",
              "--message", "msg_091"]
         )
         out = capsys.readouterr().out
         assert "message_type" in out
-        assert "notify" not in out
-        assert "digest" not in out
+        assert "belong to Phase 4" in out
+
+        # Word boundaries, so "group_muted=False" and "User has muted this
+        # group" are not mistaken for a routing verdict.
+        action_word = re.compile(r"\b(notify|digest|mute)\b", re.IGNORECASE)
+        verdict_lines = [
+            line
+            for line in out.splitlines()
+            if action_word.search(line) and "Phase 4" not in line
+        ]
+        assert verdict_lines == []
+
+    def test_shows_routing_signals(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Phase 3 output must show every signal with score and confidence."""
+        main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR",
+             "--message", "msg_091"]
+        )
+        out = capsys.readouterr().out
+        assert "Routing signals" in out
+        for signal_name in (
+            "sender_priority", "business_priority", "group_priority",
+            "relationship_strength", "historical_importance",
+            "engagement_modifier", "fatigue_modifier", "risk_modifier",
+            "trust_modifier", "urgency_modifier",
+        ):
+            assert signal_name in out
