@@ -20,26 +20,30 @@ Read [`problem_statement.md`](./problem_statement.md) for the full task spec, in
 |---|---|---|
 | **1 — data layer** | Complete | [`DATA_LAYER.md`](./DATA_LAYER.md) |
 | **2 — features + classification** | Complete | [`PHASE_2.md`](./PHASE_2.md) |
-| 3 — personalisation | Not started | — |
+| **3 — personalisation signals** | Complete | [`PHASE_3.md`](./PHASE_3.md) |
 | 4 — routing | Not started | — |
 | 5 — evidence retrieval | Not started | — |
 | 6 — output generation | Not started | — |
 
 ```bash
 pip install -r requirements.txt
-python main.py                     # both phases on a representative sample
-python main.py --message msg_091   # full feature + classification report
-python main.py --all               # every message, with a distribution summary
-python -m pytest                   # 387 tests
+python main.py                     # all phases on a representative sample
+python main.py --message msg_091   # features, classification and routing signals
+python main.py --all               # every message, with distribution summaries
+python -m pytest                   # 519 tests
 ```
 
 Phase 2 classifies each message into one of the eleven `message_type` values
-and scores its confidence. It agrees with 29 of the 30 labelled examples in
-`sample_messages.csv` — see [`PHASE_2.md`](./PHASE_2.md) for how that was
-measured and why the figure should be read as optimistic.
+and scores its confidence, agreeing with 29 of the 30 labelled examples in
+`sample_messages.csv`.
+
+Phase 3 turns that into ten independent, normalised, explained routing signals
+personalised to the receiving user. Nine of the ten order monotonically
+`notify > digest > mute` against the ground-truth actions without ever seeing
+an action label.
 
 `output.csv` is intentionally still blank, and no routing decision
-(`notify` / `digest` / `mute`) is made yet — both are later phases.
+(`notify` / `digest` / `mute`) is made yet — that is Phase 4.
 
 ---
 
