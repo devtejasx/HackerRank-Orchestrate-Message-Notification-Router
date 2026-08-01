@@ -74,7 +74,9 @@ class SenderPriorityCalculator(SignalCalculator):
                 name="responsiveness",
                 value=stats.reply_rate,
                 weight=0.28,
-                high_reason=f"User replies often to this sender ({stats.reply_rate:.0%} reply rate).",
+                high_reason=(
+                    f"User replies often to this sender ({stats.reply_rate:.0%})."
+                ),
                 low_reason="User rarely replies to this sender.",
             ),
             Contribution(

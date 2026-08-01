@@ -21,7 +21,6 @@ from typing import ClassVar, Final
 from src.data.models import NotificationSummary
 from src.personalization.base import SignalCalculator, SignalContext
 from src.personalization.normalization import (
-    NEUTRAL,
     Contribution,
     evidence_confidence,
     saturating,

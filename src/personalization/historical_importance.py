@@ -108,7 +108,7 @@ class HistoricalImportanceCalculator(SignalCalculator):
             ),
             Contribution(
                 name="relationship_trend",
-                value=self._relationship_trend(context, similar),
+                value=self._relationship_trend(similar),
                 weight=0.10,
                 high_reason="This source is becoming more active.",
                 low_reason="This source is becoming less active.",
@@ -186,9 +186,7 @@ class HistoricalImportanceCalculator(SignalCalculator):
         return (opened + replied) / 2.0
 
     @staticmethod
-    def _relationship_trend(
-        context: SignalContext, similar: Sequence[MessageHistory]
-    ) -> float:
+    def _relationship_trend(similar: Sequence[MessageHistory]) -> float:
         """Compare message volume in the recent half of the span against the earlier.
 
         Measured over elapsed time rather than record count, so a genuine

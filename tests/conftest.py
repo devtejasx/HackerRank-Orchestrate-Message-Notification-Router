@@ -18,6 +18,9 @@ from src import config
 from src.data.loader import DataLoader
 from src.data.models import Message
 from src.data.repository import DataRepository
+from src.personalization.base import SignalContext
+from src.personalization.engine import PersonalizationEngine
+from src.personalization.interaction_stats import InteractionStatsProvider
 from src.pipeline import MessagePipeline
 
 #: Row of a CSV as read by :class:`csv.DictReader`.
@@ -44,6 +47,35 @@ def loader(dataset_dir: Path) -> DataLoader:
 def repo(dataset_dir: Path) -> DataRepository:
     """A fully loaded, validated and indexed repository over the real dataset."""
     return DataRepository.load(dataset_dir)
+
+
+@pytest.fixture(scope="session")
+def engine(repo: DataRepository) -> PersonalizationEngine:
+    """A Phase 3 engine over the real dataset."""
+    return PersonalizationEngine(repo)
+
+
+@pytest.fixture(scope="session")
+def make_context(
+    repo: DataRepository, pipeline: MessagePipeline
+) -> Callable[[Message], SignalContext]:
+    """Return a factory building a :class:`SignalContext` for one message.
+
+    Runs the real Phase 2 pipeline first, so calculators are always exercised
+    against genuine features and a genuine verdict rather than stubs.
+    """
+    stats = InteractionStatsProvider(repo)
+
+    def _make(message: Message) -> SignalContext:
+        analysis = pipeline.analyse(message)
+        return SignalContext(
+            repo=repo,
+            features=analysis.features,
+            classification=analysis.classification,
+            stats=stats,
+        )
+
+    return _make
 
 
 @pytest.fixture(scope="session")

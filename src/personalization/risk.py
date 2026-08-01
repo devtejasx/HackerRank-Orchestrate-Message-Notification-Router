@@ -52,7 +52,6 @@ class RiskCalculator(SignalCalculator):
     def contributions(self, context: SignalContext) -> Sequence[Contribution]:
         """Return the risk evidence, all of it derived from Phase 2 outputs."""
         shares = self._evidence_shares(context)
-        verdict = context.classification.message_type
 
         return (
             # The verdict itself is stated once, by calculate(); these read on
