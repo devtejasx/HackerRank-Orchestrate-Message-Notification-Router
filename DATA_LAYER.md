@@ -39,7 +39,7 @@ python main.py                  # schema summary, load, validate, index, lookups
 python main.py --schema-only    # print the schema and exit
 python main.py --strict         # treat validation warnings as failures
 python main.py --log-level DEBUG
-python -m pytest                # 234 tests
+python -m pytest                # 387 tests (Phases 1 and 2)
 ```
 
 Environment overrides: `MNR_DATASET_DIR`, `MNR_LOG_LEVEL`, `MNR_STRICT_VALIDATION`.
@@ -61,7 +61,7 @@ src/
 └── utils/
     └── helpers.py         # total coercion/parsing helpers
 main.py                    # smoke test entry point
-tests/                     # 234 tests
+tests/                     # Phase 1 tests (see PHASE_2.md for the rest)
 ```
 
 ### Why `schema.py` exists
@@ -206,7 +206,7 @@ since events are 1:1 with historical messages.
 ## Testing
 
 ```bash
-python -m pytest              # 234 passed
+python -m pytest              # 387 passed across both phases
 ```
 
 | File | Covers |
@@ -220,7 +220,7 @@ python -m pytest              # 234 passed
 
 ---
 
-## For the next phase
+## Consuming this layer
 
 Depend on `DataRepository` only.
 
@@ -235,8 +235,13 @@ for message in repo.get_messages():
     business  = repo.get_business(message.business_id) if message.business_id else None
     relation  = repo.get_user_business(message.user_id, message.business_id) if business else None
     member    = repo.get_group_member(message.group_id, message.user_id) if message.group_id else None
-    media     = repo.get_media_path(message)      # OCR / ASR reads from here
-    # ... routing decision goes here, in a later phase
+    media     = repo.get_media_path(message)      # OCR / ASR will read from here
 ```
 
 Everything a routing decision needs is one dict lookup away.
+
+**Phase 2 already builds on this**, turning each message into features and a
+classification — see [`PHASE_2.md`](./PHASE_2.md). Code written after Phase 2
+should generally depend on `MessagePipeline` rather than reaching for the
+repository directly, and drop to `DataRepository` only for raw records the
+feature layer does not carry.

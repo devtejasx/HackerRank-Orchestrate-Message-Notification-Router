@@ -18,16 +18,28 @@ Read [`problem_statement.md`](./problem_statement.md) for the full task spec, in
 
 | Phase | Status | Docs |
 |---|---|---|
-| **Hour 1 — data layer** | Complete | [`DATA_LAYER.md`](./DATA_LAYER.md) |
-| Classification, routing, media, output | Not started | — |
+| **1 — data layer** | Complete | [`DATA_LAYER.md`](./DATA_LAYER.md) |
+| **2 — features + classification** | Complete | [`PHASE_2.md`](./PHASE_2.md) |
+| 3 — personalisation | Not started | — |
+| 4 — routing | Not started | — |
+| 5 — evidence retrieval | Not started | — |
+| 6 — output generation | Not started | — |
 
 ```bash
 pip install -r requirements.txt
-python main.py        # load, validate, index and smoke-test the dataset
-python -m pytest      # 234 tests
+python main.py                     # both phases on a representative sample
+python main.py --message msg_091   # full feature + classification report
+python main.py --all               # every message, with a distribution summary
+python -m pytest                   # 387 tests
 ```
 
-`output.csv` is intentionally still blank — generating it is a later phase.
+Phase 2 classifies each message into one of the eleven `message_type` values
+and scores its confidence. It agrees with 29 of the 30 labelled examples in
+`sample_messages.csv` — see [`PHASE_2.md`](./PHASE_2.md) for how that was
+measured and why the figure should be read as optimistic.
+
+`output.csv` is intentionally still blank, and no routing decision
+(`notify` / `digest` / `mute`) is made yet — both are later phases.
 
 ---
 
