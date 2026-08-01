@@ -23,7 +23,6 @@ from collections import Counter
 from pathlib import Path
 
 from src import config
-from src.classifier.enums import KeywordCategory
 from src.data import schema
 from src.data.loader import DatasetError
 from src.data.models import MessageRecord
@@ -331,11 +330,11 @@ def _select_messages(
         return messages
     if args.limit:
         return messages[: args.limit]
-    return _representative_sample(messages, repo)
+    return _representative_sample(messages)
 
 
 def _representative_sample(
-    messages: tuple[MessageRecord, ...], repo: DataRepository
+    messages: tuple[MessageRecord, ...],
 ) -> tuple[MessageRecord, ...]:
     """Pick one message per conversation type, so the demo shows real variety.
 

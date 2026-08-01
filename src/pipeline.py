@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Self
 
 from src import config
-from src.classifier.confidence import ConfidenceModel, DEFAULT_CONFIDENCE
+from src.classifier.confidence import DEFAULT_CONFIDENCE, ConfidenceModel
 from src.classifier.keyword_rules import KeywordMatcher
 from src.classifier.message_classifier import MessageClassification, MessageClassifier
 from src.classifier.rules import DEFAULT_WEIGHTS, Weights

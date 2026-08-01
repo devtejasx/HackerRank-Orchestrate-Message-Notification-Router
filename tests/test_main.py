@@ -1,4 +1,4 @@
-"""Tests for the :mod:`main` smoke-test entry point."""
+"""Tests for the :mod:`main` entry point."""
 
 from __future__ import annotations
 
@@ -16,23 +16,79 @@ class TestCli:
         assert main.main(["--schema-only"]) == 0
         out = capsys.readouterr().out
         assert "DATASET SCHEMA" in out
-        assert "LOAD SUMMARY" not in out
+        assert "PHASE 1 - DATA LAYER" not in out
+
+    def test_data_only_stops_before_phase_two(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR", "--data-only"]
+        ) == 0
+        out = capsys.readouterr().out
+        assert "PHASE 1 - DATA LAYER" in out
+        assert "PHASE 2" not in out
 
     def test_full_run_succeeds(
         self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         assert main.main(["--dataset", str(dataset_dir), "--log-level", "ERROR"]) == 0
         out = capsys.readouterr().out
-        for section in ("DATASET SCHEMA", "LOAD SUMMARY", "SMOKE LOOKUPS", "RESULT"):
+        for section in (
+            "PHASE 1 - DATA LAYER",
+            "PHASE 1 - REPOSITORY LOOKUPS",
+            "PHASE 2 - FEATURES AND CLASSIFICATION",
+            "RESULT",
+        ):
             assert section in out
-        assert "Hour 1 data layer is ready" in out
+        assert "no exceptions raised" in out
+
+    def test_single_message_report(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR",
+             "--message", "msg_005"]
+        ) == 0
+        out = capsys.readouterr().out
+        assert "Message msg_005" in out
+        assert "message_type" in out
+        assert "confidence" in out
+
+    def test_unknown_message_id_exits(self, dataset_dir: Path) -> None:
+        with pytest.raises(SystemExit):
+            main.main(
+                ["--dataset", str(dataset_dir), "--log-level", "ERROR",
+                 "--message", "does_not_exist"]
+            )
+
+    def test_all_prints_summary(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR", "--all"]
+        ) == 0
+        out = capsys.readouterr().out
+        assert "PHASE 2 - CLASSIFICATION SUMMARY" in out
+        assert "110 message(s) analysed" in out
+
+    def test_limit_selects_a_prefix(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR", "--limit", "4"]
+        ) == 0
+        assert "4 message(s) analysed" in capsys.readouterr().out
 
     def test_missing_dataset_exits_nonzero(self, tmp_path: Path) -> None:
-        assert main.main(["--dataset", str(tmp_path / "absent"), "--log-level", "ERROR"]) == 1
+        assert main.main(
+            ["--dataset", str(tmp_path / "absent"), "--log-level", "ERROR"]
+        ) == 1
 
     def test_broken_dataset_exits_nonzero(self, dataset_copy: Path) -> None:
         (dataset_copy / "users.csv").unlink()
-        assert main.main(["--dataset", str(dataset_copy), "--log-level", "ERROR"]) == 1
+        assert main.main(
+            ["--dataset", str(dataset_copy), "--log-level", "ERROR"]
+        ) == 1
 
     def test_defaults(self) -> None:
         args = main.parse_args([])
@@ -40,14 +96,20 @@ class TestCli:
         assert args.strict is False
         assert args.no_validate is False
         assert args.schema_only is False
+        assert args.all is False
+        assert args.message is None
+
+    def test_selection_flags_are_mutually_exclusive(self) -> None:
+        with pytest.raises(SystemExit):
+            main.parse_args(["--all", "--limit", "3"])
 
     def test_rejects_unknown_log_level(self) -> None:
         with pytest.raises(SystemExit):
             main.parse_args(["--log-level", "LOUD"])
 
 
-class TestSmokeOutput:
-    """The smoke lookups must exercise real records, not placeholders."""
+class TestOutputContent:
+    """The demo must report real data, not placeholders."""
 
     def test_reports_media_bytes_on_disk(
         self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
@@ -57,9 +119,42 @@ class TestSmokeOutput:
         assert "MISSING" not in out
         assert "bytes" in out
 
-    def test_unknown_ids_degrade_gracefully(
+    def test_reports_features_and_classification(
         self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        main.main(["--dataset", str(dataset_dir), "--log-level", "ERROR"])
+        main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR",
+             "--message", "msg_091"]
+        )
         out = capsys.readouterr().out
-        assert "Unknown ids" in out
+        for label in ("Features", "Keywords", "Classification", "reason", "scores"):
+            assert label in out
+
+    def test_does_not_write_output_csv(
+        self, dataset_copy: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Output generation belongs to a later phase.
+
+        Asserted against the file itself rather than the printed text, which
+        legitimately contains words like "interactions".
+        """
+        output_csv = dataset_copy / "output.csv"
+        before = output_csv.read_bytes()
+
+        main.main(["--dataset", str(dataset_copy), "--log-level", "ERROR", "--all"])
+
+        assert output_csv.read_bytes() == before
+        capsys.readouterr()
+
+    def test_reports_a_category_not_a_routing_action(
+        self, dataset_dir: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The verdict is a message_type; notify/digest/mute are Phase 4."""
+        main.main(
+            ["--dataset", str(dataset_dir), "--log-level", "ERROR",
+             "--message", "msg_091"]
+        )
+        out = capsys.readouterr().out
+        assert "message_type" in out
+        assert "notify" not in out
+        assert "digest" not in out

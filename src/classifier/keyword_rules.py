@@ -115,7 +115,7 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
     ),
     KeywordCategory.TRANSACTIONAL: (
         "order", "delivery", "delivered", "dispatched", "shipped",
-        "out for delivery", "tracking", "track your", "booking", "booked",
+        "tracking", "track your", "booking", "booked",
         "confirmed", "confirmation", "prescription", "claim status",
         "your account", "statement", "feedback", "survey", "rate your",
         "ticket", "reservation", "check in", "boarding", "refill",

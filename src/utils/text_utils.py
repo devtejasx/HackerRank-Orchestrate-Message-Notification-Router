@@ -306,7 +306,9 @@ def extract_domains(value: object) -> tuple[str, ...]:
     hosts: list[str] = []
     for url in extract_urls(value):
         host = re.sub(r"^https?://", "", url, flags=re.IGNORECASE)
-        host = host.split("/", 1)[0].split("?", 1)[0].removeprefix("www.").lower()
+        # Lowercase before stripping the prefix, so an uppercase "WWW." is
+        # removed too.
+        host = host.split("/", 1)[0].split("?", 1)[0].lower().removeprefix("www.")
         if host and host not in hosts:
             hosts.append(host)
     return tuple(hosts)

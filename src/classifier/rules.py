@@ -78,7 +78,11 @@ class Weights:
     # -- spam ----------------------------------------------------------- #
     untrusted_bulk_sender: float = 1.40
     shouty_promotion: float = 0.90
-    silent_business_media: float = 1.50
+    #: Weighted to outrank the business baseline *without* a relationship
+    #: (0.70 + 1.10) but not with one (+0.50). A silent media blast from a
+    #: brand the user has never dealt with reads as spam; the same thing from
+    #: a brand they order from reads as an update.
+    silent_business_media: float = 2.00
 
     # -- promotion / business --------------------------------------------#
     business_promotion: float = 1.00
