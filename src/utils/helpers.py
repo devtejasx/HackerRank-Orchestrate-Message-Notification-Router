@@ -30,6 +30,9 @@ __all__ = [
     "parse_timestamp",
     "parse_date",
     "parse_dnd_window",
+    "is_within_time_window",
+    "clamp",
+    "ratio",
     "file_exists",
     "resolve_dataset_path",
     "index_by",
@@ -253,6 +256,50 @@ def parse_dnd_window(value: object) -> tuple[time, time] | None:
     except ValueError:
         return None
     return start, end
+
+
+def is_within_time_window(moment: time, window: tuple[time, time]) -> bool:
+    """Return whether ``moment`` falls inside ``window``.
+
+    Handles windows that wrap past midnight, which is the normal shape of a
+    do-not-disturb setting such as ``22:00-07:00``. The start is inclusive and
+    the end exclusive. A window whose endpoints are equal is treated as empty.
+
+    Args:
+        moment: Time of day to test.
+        window: ``(start, end)`` pair, typically from
+            :func:`parse_dnd_window`.
+
+    Returns:
+        ``True`` when the moment is inside the window.
+    """
+    start, end = window
+    if start == end:
+        return False
+    if start < end:
+        return start <= moment < end
+    return moment >= start or moment < end
+
+
+# --------------------------------------------------------------------------- #
+# Numeric shaping
+# --------------------------------------------------------------------------- #
+
+
+def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    """Constrain ``value`` to the inclusive range ``[low, high]``."""
+    return max(low, min(high, value))
+
+
+def ratio(numerator: float, denominator: float, default: float = 0.0) -> float:
+    """Divide safely, returning ``default`` when the denominator is zero.
+
+    Used throughout feature extraction so an absent history yields a defined
+    ``0.0`` rate rather than raising or producing ``NaN``.
+    """
+    if not denominator:
+        return default
+    return numerator / denominator
 
 
 # --------------------------------------------------------------------------- #

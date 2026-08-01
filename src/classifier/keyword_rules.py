@@ -52,32 +52,37 @@ class KeywordMatch:
 #: Keyword families. Entries are matched case-insensitively on whitespace-
 #: normalised text, with tolerance for regular inflection (``offer`` matches
 #: ``offers``; ``bill`` does not match ``billion``).
+#:
+#: Within a category no entry may be a substring of another, so a single
+#: phrase cannot be counted twice and inflate confidence. Deliberate overlap
+#: *across* categories is fine and meaningful: "buy now" is both promotional
+#: and spammy. ``tests/test_keyword_rules.py`` enforces the within-category
+#: rule.
 DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
     KeywordCategory.URGENT: (
         # Required vocabulary.
         "urgent", "emergency", "asap", "immediately", "help", "critical",
         "important",
         # Time pressure, which is how urgency actually appears in the data.
-        "right now", "right away", "at once", "hurry", "quick heads up",
-        "heads up", "last minute", "last-minute", "before eod", "by eod",
-        "end of day", "today itself", "cannot wait", "can not wait",
-        "no time", "running late", "deadline", "expires today",
-        "expiring today", "within the hour", "in 2 hours", "mins max",
+        "right now", "right away", "at once", "hurry", "heads up",
+        "last minute", "before eod", "by eod", "end of day", "today itself",
+        "cannot wait", "can not wait", "no time", "running late", "deadline",
+        "expires today", "expiring today", "within the hour", "mins max",
         "minutes max", "act fast", "time sensitive", "priority",
     ),
     KeywordCategory.PAYMENT: (
         "invoice", "bill", "payment", "upi", "due", "paid", "refund",
-        "pay", "amount", "balance", "transaction", "receipt", "maintenance fee",
-        "reattempt fee", "outstanding", "instalment", "installment", "emi",
+        "pay", "amount", "balance", "transaction", "receipt",
+        "outstanding", "instalment", "installment", "emi",
         "settle", "transfer", "reimbursement", "charge", "fee",
     ),
     KeywordCategory.PROMOTION: (
         "sale", "offer", "discount", "coupon", "deal", "cashback", "buy",
-        "% off", "percent off", "flat off", "promo code", "promo",
+        "% off", "percent off", "flat off", "promo",
         "shop now", "order now", "tap below", "book now", "grab",
         "exclusive", "lowest price", "best price", "new arrival", "launch",
-        "membership", "subscribe now", "t&c apply", "terms apply",
-        "starting at", "starts at", "per person", "for sale", "selling",
+        "membership", "t&c apply", "terms apply",
+        "starting at", "starts at", "per person", "selling",
         "dm if interested",
     ),
     KeywordCategory.EVENT: (
@@ -98,8 +103,8 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
     ),
     KeywordCategory.FORWARD: (
         "forwarded", "share", "viral",
-        "fwd", "fwd as received", "as received", "forward to", "forwarded many times",
-        "pls forward", "please forward", "share with everyone", "sharing here",
+        "fwd", "as received", "forward to",
+        "pls forward", "please forward", "sharing here",
         "spread the word", "copy paste", "received on whatsapp",
     ),
     KeywordCategory.SPAM: (
@@ -115,15 +120,16 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         "investment", "bank account", "refund immediately", "winner",
         "click here",
         # Credential and account-takeover phrasing seen in the labelled scams.
-        "one time password", "login code", "verification code", "cvv", "pin",
-        "password", "confirm password", "share otp", "send otp", "enter otp",
-        "verify now", "verify identity", "account will be blocked",
-        "will be blocked", "temporarily blocked", "account suspended",
-        "suspended", "reactivate", "kyc", "kyc update", "update kyc",
-        "security alert", "support alert", "unusual activity",
-        "prize money", "jackpot", "you have won", "won a prize",
+        "login code", "verification code", "cvv", "pin",
+        "password", "verify now", "verify identity",
+        "will be blocked", "temporarily blocked", "suspended", "reactivate",
+        "kyc", "security alert", "support alert", "unusual activity",
+        "prize money", "jackpot", "you have won",
         "guaranteed returns", "double your money", "work from home income",
+        # Fee-for-release patterns. "fee" alone is a PAYMENT keyword; these
+        # add scam-specific weight on top of it.
         "processing fee", "customs fee", "clearance fee", "delivery fee",
+        "reattempt fee",
         "reply with the", "6 digit", "six digit", "gift card",
     ),
 }
