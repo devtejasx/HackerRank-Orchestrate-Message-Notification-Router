@@ -21,7 +21,13 @@ from src.personalization.interaction_stats import (
     InteractionStats,
     InteractionStatsProvider,
 )
-from src.personalization.normalization import Contribution, blend, explain
+from src.personalization.normalization import (
+    NEUTRAL,
+    Contribution,
+    blend,
+    explain,
+    one_sided,
+)
 from src.personalization.signal_models import RoutingSignal, SignalPolarity
 
 __all__ = ["SignalContext", "SignalCalculator"]
@@ -128,6 +134,16 @@ class SignalCalculator(ABC):
     #: Maximum explanations carried on the signal, so reasons stay readable.
     max_reasons: ClassVar[int] = 3
 
+    #: Whether this signal only ever argues in its polarity's direction.
+    #:
+    #: Most signals are two-sided - a sender the user ignores is genuine
+    #: evidence for holding back, not just an absence of evidence for sending.
+    #: Risk and urgency are not: "shows no sign of being a scam" is not a
+    #: reason to interrupt someone, and "not urgent", true of most messages, is
+    #: not a reason to suppress one. Setting this rescales the score onto
+    #: ``[0.5, 1]`` so absence lands on neutral instead of pushing backwards.
+    one_sided: ClassVar[bool] = False
+
     @abstractmethod
     def contributions(self, context: SignalContext) -> Sequence[Contribution]:
         """Return the normalised inputs to this signal.
@@ -161,8 +177,24 @@ class SignalCalculator(ABC):
         contributions = list(self.contributions(context))
         return RoutingSignal(
             name=self.name,
-            score=blend(contributions),
+            score=self.score(contributions),
             confidence=self.confidence(context),
             polarity=self.polarity,
             reasons=explain(contributions, limit=self.max_reasons),
         )
+
+    def score(self, contributions: Sequence[Contribution]) -> float:
+        """Blend contributions into this signal's score.
+
+        For a one-sided signal the absence of evidence is neutral rather than
+        zero, so the empty-blend default is ``0.0`` before rescaling puts it
+        back at neutral.
+
+        Args:
+            contributions: The normalised inputs.
+
+        Returns:
+            The score, in ``[0, 1]``.
+        """
+        raw = blend(contributions, default=0.0 if self.one_sided else NEUTRAL)
+        return one_sided(raw) if self.one_sided else raw

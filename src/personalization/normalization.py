@@ -30,6 +30,7 @@ __all__ = [
     "HIGH_THRESHOLD",
     "LOW_THRESHOLD",
     "blend",
+    "one_sided",
     "explain",
     "saturating",
     "decay",
@@ -106,6 +107,28 @@ def blend(contributions: Sequence[Contribution], default: float = NEUTRAL) -> fl
     total_weight = sum(item.weight for item in contributions)
     weighted = sum(item.value * item.weight for item in contributions)
     return clamp(weighted / total_weight)
+
+
+def one_sided(value: float) -> float:
+    """Rescale ``[0, 1]`` onto ``[0.5, 1]`` so absence of a thing stays neutral.
+
+    Most signals are genuinely two-sided: a sender the user never engages with
+    is real evidence for holding a message back, not merely an absence of
+    evidence for sending it. A few are not. "This message shows no sign of
+    being a scam" is not an argument for interrupting someone, and "this
+    message is not urgent" - true of most messages - is not an argument for
+    suppressing it. Without this rescaling both would push as hard as their
+    positive counterparts, purely as an artefact of sitting below neutral.
+
+    Args:
+        value: Strength of the phenomenon, in ``[0, 1]``, where ``0`` means
+            "no sign of it".
+
+    Returns:
+        ``0.5`` when the phenomenon is absent, rising to ``1.0`` when it is
+        unmistakable.
+    """
+    return NEUTRAL + clamp(value) * (1.0 - NEUTRAL)
 
 
 def explain(contributions: Iterable[Contribution], limit: int | None = None) -> tuple[str, ...]:
