@@ -1,0 +1,6 @@
+# Runtime
+pandas>=2.0
+
+# Development / test
+pytest>=7.0
+ruff>=0.5

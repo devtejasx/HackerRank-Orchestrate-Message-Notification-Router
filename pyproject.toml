@@ -1,0 +1,15 @@
+[project]
+name = "message-notification-router"
+version = "0.1.0"
+description = "HackerRank Orchestrate - WhatsApp Message Notification Router (Hour 1: data layer)"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+# Put the repository root on sys.path so `import src` works from tests/.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
