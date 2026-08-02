@@ -29,6 +29,7 @@ second and needs no API keys, network access or manual steps.
 | Confidence, correct vs incorrect decisions | **0.81 vs 0.50** (gap **+0.31**) |
 | Evidence ids valid and correctly scoped | **80/80** |
 | Evidence whose reaction fits the action | **94%** |
+| Dataset corruptions survived with a complete, valid submission | **40/40** |
 | Tests | **684 passing** |
 | Full run over 110 messages | **~1 second** (1.9 ms/message, linear to 5,500) |
 
@@ -39,6 +40,27 @@ second and needs no API keys, network access or manual steps.
 
 The single disagreement is a voice note whose *category* needs speech
 recognition. **Routing is correct on every message the classifier got right.**
+
+---
+
+## Against the brief
+
+Every requirement in the challenge specification, and where it is met:
+
+| Requirement | Where |
+|---|---|
+| `notify` / `digest` / `mute` per message | `src/routing/decision_engine.py` |
+| Personalised to the **receiving user** | `src/personalization/` — 10 signals, `SignalContext` is always recipient-scoped |
+| Handles text, image and voice messages | `src/features/`, plus `src/media/` for attachment resolution |
+| Uses user, group, business, history, image, voice and interaction data | All 12 tables loaded and indexed; `src/data/schema.py` |
+| Suppresses low-value, repetitive, unwanted, suspicious and unsafe content | `src/routing/rules.py` — promotion, forwarding, muted-group, risk and scam rules |
+| One row per `message_id`, exact columns | `src/output/validation.py` enforces it before writing |
+| `none` when no evidence applies | `NO_EVIDENCE` sentinel, `src/routing/models.py` |
+| Runnable from the terminal | `python main.py` |
+| Reads only from `dataset/`, no organizer-only files | `src.config.DATASET_DIR` is the single data root |
+| No hardcoded labels | No message id maps to an outcome anywhere. At runtime the `sample_messages.csv` labels are read **only** by `src/evaluation/`; they informed the rule weights during development, which the comments beside those weights say openly |
+| Deterministic | Pinned by `tests/test_robustness.py::TestDeterminism` |
+| Secrets from environment only | No credentials of any kind; the run needs no network |
 
 ---
 
@@ -125,20 +147,43 @@ $ python main.py --inspect -m msg_091
 
   Routing decision (Phase 4)
     rule                                argues for   weight
+    -------------------------------------------------------
     type_prior                                mute     3.00
     scam_override                             mute     2.82  <-- override
     risk_suppression                          mute     1.41
     historical_importance                   digest     0.28
+    counterparty_standing                   digest     0.24
     totals                   mute=7.23, digest=0.52, notify=0.00
+    runner-up                digest (margin 6.72)
 
     ACTION                   MUTE
     confidence               0.95
     evidence                 message_0381;message_0238;message_0322
+    evidence basis           3 comparable message(s) of the same type the user
+                             reacted to consistently with mute.
     reason                   The message shows clear scam characteristics and is
                              unsafe to deliver, and multiple risk signals point to
-                             unwanted content. This is consistent with how the user
-                             treated similar messages.
+                             unwanted or unsafe content. This is consistent with
+                             how the user treated similar messages.
 ```
+
+Every number there is traceable: the weights are what the rules returned, the
+evidence is history this recipient actually reacted to, and the reason is
+assembled from the same outcome objects that produced the score.
+
+### Verifying the submission yourself
+
+The run validates its own output before writing, but the checks are worth
+reproducing independently:
+
+```bash
+python -c "import pandas as pd; o=pd.read_csv('output.csv'); m=pd.read_csv('dataset/messages.csv'); print(list(o.columns)); print(len(o)==len(m), o.message_id.is_unique, set(o.action)<={'notify','digest','mute'}, o.confidence.between(0,1).all())"
+```
+
+Expected: the six contract columns in order, then `True True True True`.
+`python main.py --no-write` runs and validates everything without touching a
+file, and `python main.py --strict` additionally treats every dataset warning as
+blocking.
 
 ---
 
@@ -341,8 +386,9 @@ cost 110.
 ## Configuration
 
 Global settings live in [`src/config.py`](./src/config.py): dataset and output
-paths, logging, timestamp formats and the domain vocabularies. Three
-environment variables override without editing code:
+paths, logging, timestamp formats and the domain vocabularies. Four
+environment variables override without editing code, so nothing about a run
+requires touching source:
 
 | Variable | Effect |
 |---|---|
