@@ -14,7 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from src.data.models import GroupMember, Message, MessageEvent, UserBusinessHistory
+from src.data.models import (
+    GroupMember,
+    MessageEvent,
+    MessageRecord,
+    UserBusinessHistory,
+)
 from src.data.repository import DataRepository
 from src.features.feature_models import HistoricalFeatures
 from src.utils.helpers import clamp, ratio
@@ -99,7 +104,7 @@ class HistoricalFeatureExtractor:
         self._group_counts: dict[tuple[str, str], int] = {}
         self._business_counts: dict[tuple[str, str], int] = {}
 
-    def extract(self, message: Message) -> HistoricalFeatures:
+    def extract(self, message: MessageRecord) -> HistoricalFeatures:
         """Build the historical feature block for one message.
 
         Args:

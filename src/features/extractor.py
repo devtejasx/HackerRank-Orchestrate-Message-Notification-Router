@@ -13,7 +13,7 @@ from collections.abc import Iterable
 
 from src import config
 from src.classifier.keyword_rules import KeywordMatcher
-from src.data.models import Message
+from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.features.context_features import extract_context_features
 from src.features.feature_models import MessageFeatures
@@ -64,11 +64,15 @@ class FeatureExtractor:
         """The keyword matcher in use, exposed for inspection and testing."""
         return self._matcher
 
-    def extract(self, message: Message) -> MessageFeatures:
+    def extract(self, message: MessageRecord) -> MessageFeatures:
         """Build the complete feature record for one message.
 
+        Accepts any record carrying the shared message envelope, so historical
+        messages can be put through the same extraction as incoming ones. Phase
+        4 relies on that to classify history when searching for evidence.
+
         Args:
-            message: The incoming message to analyse.
+            message: The message to analyse, incoming or historical.
 
         Returns:
             An immutable, self-contained feature record. No further repository
@@ -87,7 +91,9 @@ class FeatureExtractor:
             keywords=extract_keyword_features(message.message_text, self._matcher),
         )
 
-    def extract_many(self, messages: Iterable[Message]) -> tuple[MessageFeatures, ...]:
+    def extract_many(
+        self, messages: Iterable[MessageRecord]
+    ) -> tuple[MessageFeatures, ...]:
         """Build feature records for many messages, reusing all caches.
 
         Args:

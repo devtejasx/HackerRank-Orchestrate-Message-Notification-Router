@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.data.models import Message
+from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.features.feature_models import ContextFeatures
 from src.utils.helpers import is_within_time_window, ratio
@@ -21,7 +21,7 @@ __all__ = ["extract_context_features"]
 
 
 def extract_context_features(
-    message: Message, repo: DataRepository
+    message: MessageRecord, repo: DataRepository
 ) -> ContextFeatures:
     """Build :class:`ContextFeatures` for one incoming message.
 
@@ -126,7 +126,7 @@ def _notification_load(user_id: str, repo: DataRepository) -> _NotificationLoad:
     )
 
 
-def _is_in_quiet_hours(message: Message, repo: DataRepository) -> bool:
+def _is_in_quiet_hours(message: MessageRecord, repo: DataRepository) -> bool:
     """Return whether the message landed inside the recipient's quiet hours.
 
     ``False`` when the user is unknown or their window is unparseable, so a
