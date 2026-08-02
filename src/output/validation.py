@@ -379,9 +379,10 @@ def _check_evidence(
         if rendered == NO_EVIDENCE:
             continue
         parts = rendered.split(_EVIDENCE_SEPARATOR)
-        if not all(parts) or any(part != part.strip() for part in parts):
-            malformed.append(result.message_id)
-        elif len(set(parts)) != len(parts):
+        is_blank_or_padded = not all(parts) or any(
+            part != part.strip() for part in parts
+        )
+        if is_blank_or_padded or len(set(parts)) != len(parts):
             malformed.append(result.message_id)
 
     if malformed:

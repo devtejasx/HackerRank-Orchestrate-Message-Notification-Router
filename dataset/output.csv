@@ -1,111 +1,111 @@
 message_id,action,message_type,reason,confidence,evidence_message_ids
-msg_023,,,,,
-msg_091,,,,,
-msg_090,,,,,
-msg_048,,,,,
-msg_040,,,,,
-msg_075,,,,,
-msg_005,,,,,
-msg_104,,,,,
-msg_069,,,,,
-msg_107,,,,,
-msg_070,,,,,
-msg_003,,,,,
-msg_099,,,,,
-msg_008,,,,,
-msg_092,,,,,
-msg_060,,,,,
-msg_004,,,,,
-msg_030,,,,,
-msg_045,,,,,
-msg_052,,,,,
-msg_009,,,,,
-msg_071,,,,,
-msg_016,,,,,
-msg_065,,,,,
-msg_038,,,,,
-msg_086,,,,,
-msg_014,,,,,
-msg_094,,,,,
-msg_029,,,,,
-msg_105,,,,,
-msg_002,,,,,
-msg_010,,,,,
-msg_078,,,,,
-msg_013,,,,,
-msg_018,,,,,
-msg_044,,,,,
-msg_032,,,,,
-msg_106,,,,,
-msg_006,,,,,
-msg_109,,,,,
-msg_108,,,,,
-msg_019,,,,,
-msg_088,,,,,
-msg_056,,,,,
-msg_027,,,,,
-msg_050,,,,,
-msg_083,,,,,
-msg_063,,,,,
-msg_033,,,,,
-msg_061,,,,,
-msg_020,,,,,
-msg_017,,,,,
-msg_058,,,,,
-msg_026,,,,,
-msg_047,,,,,
-msg_046,,,,,
-msg_042,,,,,
-msg_079,,,,,
-msg_098,,,,,
-msg_037,,,,,
-msg_007,,,,,
-msg_085,,,,,
-msg_001,,,,,
-msg_021,,,,,
-msg_028,,,,,
-msg_012,,,,,
-msg_064,,,,,
-msg_103,,,,,
-msg_031,,,,,
-msg_057,,,,,
-msg_087,,,,,
-msg_067,,,,,
-msg_039,,,,,
-msg_082,,,,,
-msg_066,,,,,
-msg_049,,,,,
-msg_015,,,,,
-msg_051,,,,,
-msg_097,,,,,
-msg_089,,,,,
-msg_053,,,,,
-msg_059,,,,,
-msg_024,,,,,
-msg_072,,,,,
-msg_036,,,,,
-msg_076,,,,,
-msg_055,,,,,
-msg_102,,,,,
-msg_080,,,,,
-msg_093,,,,,
-msg_034,,,,,
-msg_035,,,,,
-msg_101,,,,,
-msg_041,,,,,
-msg_011,,,,,
-msg_110,,,,,
-msg_095,,,,,
-msg_074,,,,,
-msg_073,,,,,
-msg_054,,,,,
-msg_068,,,,,
-msg_100,,,,,
-msg_062,,,,,
-msg_096,,,,,
-msg_043,,,,,
-msg_077,,,,,
-msg_081,,,,,
-msg_025,,,,,
-msg_084,,,,,
-msg_022,,,,,
+msg_023,digest,business_update,"The message is classified as business update, and it comes from HDFC Bank, a business the user deals with. This is consistent with how the user treated similar messages.",0.76,message_0102;message_0243;message_0101
+msg_091,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0381;message_0238;message_0322
+msg_090,digest,unknown,"The message is classified as unknown, and it comes from a sender the user has not heard from before.",0.74,none
+msg_048,notify,urgent,"A trusted sender raised something time-sensitive, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.89,message_0150;message_0149;message_0269
+msg_040,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 7 times. This is consistent with how the user treated similar messages.",0.76,message_0136;message_0135;message_0017
+msg_075,digest,business_update,"The message is classified as business update, and it comes from Grab, a business the user deals with. This is consistent with how the user treated similar messages.",0.64,message_0205;message_0206;message_0294
+msg_005,digest,promotion,"The message is classified as promotion, and it was posted in Myntra Marketplace. This is consistent with how the user treated similar messages.",0.55,message_0114;message_0113;message_0049
+msg_104,digest,personal,"The user rarely acts on notifications, and the user rarely engages with this sender. This is consistent with how the user treated similar messages.",0.86,message_0232;message_0383;message_0224
+msg_069,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 11 times. This is consistent with how the user treated similar messages.",0.92,message_0194;message_0247;message_0178
+msg_107,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0173;message_0213;message_0053
+msg_070,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0173;message_0213;message_0053
+msg_003,notify,business_update,"A verified business the user deals with sent a transactional update, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.89,message_0031;message_0267;message_0400
+msg_099,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.59,message_0055;message_0249;message_0228
+msg_008,digest,business_update,"The message arrived during the user's quiet hours, and the user is already receiving a heavy volume of notifications. This is consistent with how the user treated similar messages.",0.88,message_0071;message_0296;message_0072
+msg_092,notify,payment,"The message is classified as payment, and it comes from American Express, a business the user has no relationship with. This is consistent with how the user treated similar messages.",0.63,message_0384;message_0346
+msg_060,notify,event,"A trusted sender raised something time-sensitive, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.90,message_0176;message_0175;message_0404
+msg_004,notify,event,"A verified business the user deals with sent a transactional update, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.93,message_0245;message_0064;message_0005
+msg_030,mute,promotion,"The user muted this group and rarely reads it, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.68,message_0115;message_0050;message_0335
+msg_045,digest,personal,"The message is classified as personal, and it was posted in Maple Heights Residents. This is consistent with how the user treated similar messages.",0.57,message_0145;message_0268;message_0371
+msg_052,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and an unfamiliar sender is asking for money or payment details. This is consistent with how the user treated similar messages.",0.95,message_0208;message_0207;message_0160
+msg_009,digest,personal,"The sender explicitly indicated the message is not time-critical, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.74,message_0074;message_0073
+msg_071,digest,personal,"The message is classified as personal, and it was posted in Extended Family. This is consistent with how the user treated similar messages.",0.73,message_0197;message_0198;message_0274
+msg_016,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0087;message_0183;message_0024
+msg_065,digest,promotion,"Promotional content from a business the user engages with, and the message is classified as promotion. This is consistent with how the user treated similar messages.",0.76,message_0186;message_0185;message_0261
+msg_038,mute,forward,"The message has been forwarded 10 times, and the message is classified as forward. This is consistent with how the user treated similar messages.",0.87,message_0131;message_0132
+msg_086,mute,spam,"The message is classified as spam, and it comes from Thrillophilia, a business the user deals with.",0.75,none
+msg_014,mute,promotion,"The user opted out of promotions from this business, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.85,message_0017;message_0084;message_0083
+msg_094,mute,promotion,"Marketing from a business the user has no relationship with, and the message is classified as promotion. This is consistent with how the user treated similar messages.",0.69,message_0204;message_0203;message_0223
+msg_029,mute,promotion,"The message has been forwarded 8 times, and the message is classified as promotion. This is consistent with how the user treated similar messages.",0.69,message_0095;message_0096;message_0332
+msg_105,mute,forward,"The message has been forwarded 7 times, and the message is classified as forward. This is consistent with how the user treated similar messages.",0.80,message_0233;message_0373
+msg_002,notify,event,"A trusted sender raised something time-sensitive, and the message addresses the user directly. This is consistent with how the user treated similar messages.",0.93,message_0169;message_0059;message_0371
+msg_010,digest,business_update,"The message is classified as business update, and it comes from PVRINOX Cinemas, a business the user deals with. This is consistent with how the user treated similar messages.",0.85,message_0011;message_0242;message_0075
+msg_078,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 10 times. This is consistent with how the user treated similar messages.",0.89,message_0212;message_0211;message_0391
+msg_013,digest,promotion,"Comparable messages have previously been ignored or dismissed, and the message is classified as promotion.",0.53,none
+msg_018,digest,personal,"Comparable messages have previously been ignored or dismissed, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.58,message_0092;message_0026;message_0244
+msg_044,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0143;message_0144;message_0036
+msg_032,digest,personal,"The sender explicitly indicated the message is not time-critical, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.85,message_0374;message_0285;message_0120
+msg_106,digest,personal,"The message is classified as personal, and it comes from a contact the user has exchanged 3 message(s) with. This is consistent with how the user treated similar messages.",0.55,message_0377;message_0234;message_0376
+msg_006,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.75,message_0129;message_0149;message_0189
+msg_109,digest,personal,"Comparable messages have previously been ignored or dismissed, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.60,message_0149;message_0152;message_0151
+msg_108,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0094;message_0093;message_0236
+msg_019,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and the message is classified as scam. This is consistent with how the user treated similar messages.",0.95,message_0094;message_0093;message_0236
+msg_088,digest,personal,"Comparable messages have previously been ignored or dismissed, and the user rarely acts on notifications. This is consistent with how the user treated similar messages.",0.70,message_0232;message_0383;message_0224
+msg_056,notify,event,"A trusted sender raised something time-sensitive, and the message addresses the user directly. This is consistent with how the user treated similar messages.",0.93,message_0226;message_0168;message_0167
+msg_027,digest,promotion,"The message is classified as promotion, and it comes from Thrillophilia, a business the user deals with. This is consistent with how the user treated similar messages.",0.58,message_0272;message_0109;message_0033
+msg_050,notify,event,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.81,message_0279;message_0156;message_0155
+msg_083,digest,personal,"The message is classified as personal, and it was posted in Checkout Platform Co-workers. This is consistent with how the user treated similar messages.",0.59,message_0219;message_0325
+msg_063,notify,payment,"The message is classified as payment, and it was posted in Local Food Finds. This is consistent with how the user treated similar messages.",0.52,message_0255;message_0037;message_0254
+msg_033,digest,greeting,"The sender explicitly indicated the message is not time-critical, and the message is classified as greeting. This is consistent with how the user treated similar messages.",0.86,message_0121;message_0122;message_0409
+msg_061,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 8 times. This is consistent with how the user treated similar messages.",0.89,message_0194;message_0247;message_0178
+msg_020,notify,urgent,"A trusted sender raised something time-sensitive, and the message is classified as urgent. This is consistent with how the user treated similar messages.",0.86,message_0332;message_0390;message_0065
+msg_017,digest,payment,"The user rarely engages with this sender, and comparable messages have previously been ignored or dismissed. This is consistent with how the user treated similar messages.",0.58,message_0090;message_0089
+msg_058,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 10 times. This is consistent with how the user treated similar messages.",0.92,message_0078;message_0172;message_0241
+msg_026,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and an unfamiliar sender is asking for money or payment details. This is consistent with how the user treated similar messages.",0.95,message_0032;message_0108;message_0107
+msg_047,notify,personal,"Comparable messages from this source have mattered before, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.66,message_0129;message_0149;message_0189
+msg_046,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0148;message_0147;message_0087
+msg_042,mute,scam,"The message is classified as scam, and it was posted in Society Maintenance Desk. This is consistent with how the user treated similar messages.",0.84,message_0028;message_0361;message_0140
+msg_079,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0173;message_0053;message_0213
+msg_098,notify,event,"This sender consistently matters to the user, and the message is classified as event. This is consistent with how the user treated similar messages.",0.76,message_0226;message_0168;message_0167
+msg_037,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.76,message_0129;message_0149;message_0189
+msg_007,digest,personal,"The sender explicitly indicated the message is not time-critical, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.86,message_0069;message_0070
+msg_085,mute,spam,"The message is classified as spam, and it comes from HDFC Bank Helpdesk, a business the user has no relationship with. This is consistent with how the user treated similar messages.",0.77,message_0173
+msg_001,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.60,message_0057;message_0240;message_0139
+msg_021,notify,payment,"A trusted sender raised something time-sensitive, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.94,message_0068;message_0098;message_0410
+msg_028,mute,promotion,"The user opted out of promotions from this business, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.80,message_0034;message_0111;message_0017
+msg_012,mute,forward,"The message has been forwarded 9 times, and the message is classified as forward. This is consistent with how the user treated similar messages.",0.86,message_0194;message_0247;message_0178
+msg_064,digest,personal,"Comparable messages have previously been ignored or dismissed, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.64,message_0184;message_0088;message_0202
+msg_103,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.58,message_0390;message_0231;message_0382
+msg_031,digest,promotion,"The message is classified as promotion, and it was posted in Checkout Platform Co-workers. This is consistent with how the user treated similar messages.",0.55,message_0227;message_0055;message_0249
+msg_057,notify,personal,"A trusted sender raised something time-sensitive, and the message addresses the user directly. This is consistent with how the user treated similar messages.",0.92,message_0371;message_0230;message_0170
+msg_087,digest,personal,"The user rarely acts on notifications, and comparable messages have previously been ignored or dismissed. This is consistent with how the user treated similar messages.",0.72,message_0391;message_0389;message_0164
+msg_067,notify,payment,"A trusted sender raised something time-sensitive, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.94,message_0068;message_0098;message_0410
+msg_039,notify,event,"A trusted sender raised something time-sensitive, and the message addresses the user directly. This is consistent with how the user treated similar messages.",0.95,message_0255;message_0037;message_0134
+msg_082,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.54,message_0380;message_0218;message_0397
+msg_066,mute,promotion,"The user opted out of promotions from this business, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.84,message_0188;message_0187;message_0017
+msg_049,digest,business_update,"The message is classified as business update, and it comes from Shopee, a business the user deals with. This is consistent with how the user treated similar messages.",0.61,message_0153;message_0291;message_0290
+msg_015,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0173;message_0213;message_0053
+msg_051,mute,promotion,"The user opted out of promotions from this business, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.85,message_0104;message_0103;message_0257
+msg_097,digest,personal,"The sender explicitly indicated the message is not time-critical, and the message is classified as personal. This is consistent with how the user treated similar messages.",0.85,message_0054;message_0225;message_0168
+msg_089,notify,event,"The message is classified as event, and it comes from a sender the user has not heard from before.",0.53,none
+msg_053,mute,promotion,"The message has been forwarded 6 times, and the message is classified as promotion. This is consistent with how the user treated similar messages.",0.59,message_0411;message_0253;message_0087
+msg_059,digest,personal,"The message is classified as personal, and it was posted in Myntra Marketplace. This is consistent with how the user treated similar messages.",0.72,message_0214;message_0086;message_0200
+msg_024,mute,promotion,"The user opted out of promotions from this business, and previous promotions from this source were dismissed. This is consistent with how the user treated similar messages.",0.85,message_0104;message_0103;message_0257
+msg_072,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0173;message_0053;message_0213
+msg_036,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0128;message_0127;message_0283
+msg_076,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and an unfamiliar sender is asking for money or payment details. This is consistent with how the user treated similar messages.",0.95,message_0208;message_0207;message_0160
+msg_055,digest,personal,"The message is classified as personal, and it was posted in Extended Family. This is consistent with how the user treated similar messages.",0.56,message_0387;message_0166;message_0165
+msg_102,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.60,message_0371;message_0230;message_0170
+msg_080,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.76,message_0129;message_0149;message_0189
+msg_093,digest,business_update,"The message arrived during the user's quiet hours, and the user is already receiving a heavy volume of notifications. This is consistent with how the user treated similar messages.",0.93,message_0349;message_0398;message_0348
+msg_034,mute,forward,"The user muted this group and rarely reads it, and the message has been forwarded 11 times. This is consistent with how the user treated similar messages.",0.70,message_0078;message_0172;message_0241
+msg_035,digest,business_update,"The message is classified as business update, and it comes from RazorpayX, a business the user deals with. This is consistent with how the user treated similar messages.",0.76,message_0126;message_0125;message_0281
+msg_101,digest,personal,"The sender explicitly indicated the message is not time-critical, and the message arrived during the user's quiet hours. This is consistent with how the user treated similar messages.",0.92,message_0268;message_0370;message_0229
+msg_041,notify,event,"The message is classified as event, and it comes from Polaris School of Technology, a business the user has no relationship with. This is consistent with how the user treated similar messages.",0.61,message_0138;message_0137;message_0226
+msg_011,mute,greeting,"The user muted this group and rarely reads it, and the message has been forwarded 8 times. This is consistent with how the user treated similar messages.",0.84,message_0077;message_0171;message_0014
+msg_110,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0381;message_0238;message_0322
+msg_095,mute,scam,"The message shows clear scam characteristics and is unsafe to deliver, and multiple risk signals point to unwanted or unsafe content. This is consistent with how the user treated similar messages.",0.95,message_0087;message_0183;message_0024
+msg_074,mute,promotion,"The user muted this group and rarely reads it, and the message has been forwarded 7 times. This is consistent with how the user treated similar messages.",0.82,message_0204;message_0203;message_0223
+msg_073,notify,event,"This sender consistently matters to the user, and the message is classified as event. This is consistent with how the user treated similar messages.",0.56,message_0251;message_0407;message_0087
+msg_054,digest,payment,"The user rarely acts on notifications, and comparable messages have previously been ignored or dismissed. This is consistent with how the user treated similar messages.",0.77,message_0391;message_0389
+msg_068,digest,personal,"The message is classified as personal, and it was posted in Indiranagar Book Club. This is consistent with how the user treated similar messages.",0.59,message_0192;message_0191;message_0289
+msg_100,notify,personal,"This sender consistently matters to the user, and comparable messages from this source have mattered before. This is consistent with how the user treated similar messages.",0.59,message_0055;message_0249;message_0228
+msg_062,digest,promotion,"The message arrived during the user's quiet hours, and the message is classified as promotion. This is consistent with how the user treated similar messages.",0.53,message_0410;message_0130;message_0150
+msg_096,digest,unknown,"The message is classified as unknown, and it comes from a sender the user has not heard from before.",0.74,none
+msg_043,mute,forward,"The message has been forwarded 11 times, and the message is classified as forward. This is consistent with how the user treated similar messages.",0.72,message_0271;message_0030;message_0020
+msg_077,notify,event,"A trusted sender raised something time-sensitive, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.93,message_0255;message_0037;message_0134
+msg_081,digest,personal,"The message is classified as personal, and it was posted in International School Parents Group. This is consistent with how the user treated similar messages.",0.60,message_0217;message_0054;message_0225
+msg_025,notify,business_update,"A verified business the user deals with sent a transactional update, and this sender consistently matters to the user. This is consistent with how the user treated similar messages.",0.88,message_0106;message_0105;message_0239
+msg_084,digest,business_update,"The user rarely acts on notifications, and comparable messages have previously been ignored or dismissed.",0.83,none
+msg_022,notify,payment,"This sender consistently matters to the user, and the message is classified as payment. This is consistent with how the user treated similar messages.",0.63,message_0150;message_0149;message_0068

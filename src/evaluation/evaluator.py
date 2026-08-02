@@ -324,12 +324,10 @@ def format_misses(report: EvaluationReport, limit: int = 10) -> tuple[str, ...]:
         report: A completed evaluation.
         limit: Maximum lines returned.
     """
-    lines: list[str] = []
-    for outcome in report.action_misses[:limit]:
-        lines.append(
-            f"{outcome.message_id:<16} expected {outcome.expected_action:<7} "
-            f"got {outcome.predicted_action:<7} "
-            f"(type expected {outcome.expected_type}, got {outcome.predicted_type}, "
-            f"confidence {outcome.confidence:.2f})"
-        )
-    return tuple(lines)
+    return tuple(
+        f"{outcome.message_id:<16} expected {outcome.expected_action:<7} "
+        f"got {outcome.predicted_action:<7} "
+        f"(type expected {outcome.expected_type}, got {outcome.predicted_type}, "
+        f"confidence {outcome.confidence:.2f})"
+        for outcome in report.action_misses[:limit]
+    )
