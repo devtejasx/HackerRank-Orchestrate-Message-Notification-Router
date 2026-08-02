@@ -20,10 +20,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from src.classifier.enums import KeywordCategory, MessageType
-from src.features.feature_models import MessageFeatures
+
+if TYPE_CHECKING:
+    # Annotation-only; see the note in src.classifier.confidence.
+    from src.features.feature_models import MessageFeatures
 
 __all__ = ["Signal", "Weights", "DEFAULT_WEIGHTS", "RULES", "collect_signals"]
 

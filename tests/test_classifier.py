@@ -106,12 +106,18 @@ class TestEveryCategoryIsReachable:
     )
     def test_category(
         self,
-        pipeline,
+        silent_pipeline,
         make_message: Callable[..., Message],
         expected: MessageType,
         overrides: dict[str, object],
     ) -> None:
-        result = _classify(pipeline, make_message(**overrides))
+        # Deliberately the silent pipeline: category coverage is a property of
+        # the classifier and should be pinned independently of whichever media
+        # provider is configured. The `spam` case in particular describes a
+        # business sending media with *no* text, which is only reproducible
+        # when nothing transcribes it. That transcription changes such a
+        # verdict is the integration working, and is tested in test_media.py.
+        result = _classify(silent_pipeline, make_message(**overrides))
         assert result.message_type is expected
 
     def test_all_categories_covered_by_the_suite(self) -> None:
@@ -319,10 +325,15 @@ class TestConfidence:
         assert wide > narrow
 
     def test_ambiguity_lowers_confidence(
-        self, pipeline, make_message: Callable[..., Message]
+        self, silent_pipeline, pipeline, make_message: Callable[..., Message]
     ) -> None:
-        """No text and no keywords is less certain than a keyword-backed call."""
-        silent = pipeline.extractor.extract(
+        """No text and no keywords is less certain than a keyword-backed call.
+
+        The silent pipeline is the subject here: this is about a message the
+        system genuinely cannot read, which after the Whisper integration means
+        one no model could transcribe.
+        """
+        silent = silent_pipeline.extractor.extract(
             make_message(text=None, media_type="voice", media_id="vn_004")
         )
         spoken = pipeline.extractor.extract(

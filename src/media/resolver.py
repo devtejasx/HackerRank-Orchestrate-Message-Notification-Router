@@ -21,10 +21,11 @@ far too expensive to run twice on the same file.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src import config
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
-from src.features.feature_models import MediaFeatures
 from src.media.content import MediaAttachment, MediaContent, MediaModality
 from src.media.understanding import (
     MediaUnderstanding,
@@ -33,9 +34,30 @@ from src.media.understanding import (
 )
 from src.utils.helpers import resolve_dataset_path
 
+if TYPE_CHECKING:
+    from src.features.feature_models import MediaFeatures
+
 __all__ = ["MediaResolver"]
 
 _LOGGER = config.get_logger("media.resolver")
+
+
+def _media_features() -> type[MediaFeatures]:
+    """Return the ``MediaFeatures`` class, imported on first use.
+
+    This module and :mod:`src.features.extractor` genuinely need each other at
+    runtime: the extractor constructs a resolver, and the resolver returns the
+    extractor's feature block. Importing that block at module scope closes the
+    loop, so whether ``import src.media`` works depends on which package the
+    process touched first.
+
+    Deferring the import to first call breaks the loop from the media side,
+    which leaves feature extraction untouched. Module lookup after the first
+    call is a dictionary hit, so the per-message cost is nil.
+    """
+    from src.features.feature_models import MediaFeatures
+
+    return MediaFeatures
 
 
 class MediaResolver:
@@ -81,12 +103,13 @@ class MediaResolver:
             :data:`MediaFeatures.NONE` for a message with no attachment, so
             the common text-only path allocates nothing.
         """
+        features = _media_features()
         if message.media_id is None:
-            return MediaFeatures.NONE
+            return features.NONE
 
         attachment = self.attachment(message.media_id, message.media_type)
         content = self._content_for(attachment)
-        return MediaFeatures(
+        return features(
             media_type=message.media_type,
             media_id=attachment.media_id,
             is_registered=attachment.is_registered,

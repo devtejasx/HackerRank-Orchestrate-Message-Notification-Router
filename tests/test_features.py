@@ -131,14 +131,34 @@ class TestContextFeatures:
         assert context.avg_daily_notifications > 0
         assert 0.0 <= context.notification_dismiss_rate <= 1.0
 
-    def test_media_flags(self, pipeline, make_message: Callable[..., Message]) -> None:
-        features = pipeline.extractor.extract(
+    def test_media_flags(
+        self, silent_pipeline, make_message: Callable[..., Message]
+    ) -> None:
+        """A voice note nothing could transcribe: attached, but with no text.
+
+        Uses the silent pipeline deliberately. With speech-to-text on, the
+        transcript *becomes* the body and `is_empty_text` is false - which is
+        the point of the integration, and is covered in `test_media.py`.
+        """
+        features = silent_pipeline.extractor.extract(
             make_message(text=None, media_type="voice", media_id="vn_004")
         )
         assert features.has_media is True
         assert features.contains_attachment is True
         assert features.media_type == "voice"
         assert features.is_empty_text is True
+
+    def test_transcribed_media_flags(
+        self, pipeline, make_message: Callable[..., Message]
+    ) -> None:
+        """The same voice note as shipped: still attached, no longer silent."""
+        features = pipeline.extractor.extract(
+            make_message(text=None, media_type="voice", media_id="vn_004")
+        )
+        assert features.has_media is True
+        assert features.media_type == "voice"
+        assert features.is_empty_text is False
+        assert features.has_derived_text is True
 
 
 class TestHistoricalFeatures:

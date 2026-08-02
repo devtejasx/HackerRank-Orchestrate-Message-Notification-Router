@@ -188,13 +188,26 @@ def _dataset_without_media(repo: DataRepository, tmp_path: Path) -> Path:
 
 
 class TestProviders:
-    def test_default_provider_recovers_nothing(
+    def test_null_provider_recovers_nothing(
         self, repo: DataRepository, voice_message: Message
     ) -> None:
-        media = MediaResolver(repo).resolve(voice_message)
+        media = MediaResolver(repo, NullUnderstanding()).resolve(voice_message)
         assert media.has_derived_text is False
         assert media.derived_from == "none"
         assert NullUnderstanding().supports(MediaModality.VOICE) is False
+
+    def test_the_shipped_default_does_transcribe(
+        self, repo: DataRepository, voice_message: Message
+    ) -> None:
+        """What `python main.py` actually does with a voice note.
+
+        Passes whether or not faster-whisper is installed here, because the
+        committed transcript cache covers this dataset either way - which is
+        the point of that cache.
+        """
+        media = MediaResolver(repo).resolve(voice_message)
+        assert media.has_derived_text is True
+        assert media.derived_language in (None, "en")
 
     def test_provider_output_lands_on_the_feature_block(
         self, repo: DataRepository, voice_message: Message
@@ -263,7 +276,11 @@ class TestPluggingInAModelChangesRouting:
     def test_recovered_text_reaches_text_and_keyword_features(
         self, repo: DataRepository, voice_message: Message
     ) -> None:
-        without = MessagePipeline(repo).analyse(voice_message).features
+        without = (
+            MessagePipeline(repo, understanding=NullUnderstanding())
+            .analyse(voice_message)
+            .features
+        )
         with_model = (
             MessagePipeline(repo, understanding=FakeTranscriber())
             .analyse(voice_message)
@@ -292,7 +309,9 @@ class TestPluggingInAModelChangesRouting:
     def test_installing_a_model_is_one_argument_to_load(
         self, repo: DataRepository, voice_message: Message
     ) -> None:
-        baseline = RoutingPipeline(repo).route(voice_message)
+        baseline = RoutingPipeline(repo, understanding=NullUnderstanding()).route(
+            voice_message
+        )
         with_model = RoutingPipeline(repo, understanding=FakeTranscriber()).route(
             voice_message
         )

@@ -4,3 +4,11 @@ pandas>=2.0
 # Development / test
 pytest>=7.0
 ruff>=0.5
+
+# Voice transcription is optional and lives in requirements-voice.txt.
+#
+# Without it the system still routes voice notes: transcripts committed in
+# transcripts.json cover this dataset, and if that file is missing too, voice
+# notes fall back to sender context alone. Install the extra to transcribe
+# audio the cache does not already cover - which is what a fresh evaluation
+# dataset would be. See README.md, "Voice transcription".

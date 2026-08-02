@@ -1,0 +1,22 @@
+# Voice transcription. Optional; see README.md, "Voice transcription".
+#
+#     pip install -r requirements-voice.txt
+#
+# faster-whisper pulls in ctranslate2 and PyAV, and downloads model weights on
+# first use (~150 MB for `base`). Everything works without it - transcripts
+# already committed in transcripts.json are reused, and uncovered voice notes
+# route on sender context - so this is only needed to transcribe new audio.
+faster-whisper>=1.0
+
+# Fallback audio decoders, needed only where PyAV cannot be loaded: a
+# locked-down host that blocks its native library, or a slim container built
+# without it. faster-whisper decodes with PyAV by default and needs neither of
+# these; src.media.whisper.best_available_decoder picks one up automatically if
+# PyAV is unusable, so transcription degrades to a different decoder rather
+# than to nothing.
+#
+# ffmpeg is the more capable of the two: libsndfile's MP3 support is
+# effectively Layer III only, and this dataset contains Layer I and Layer II
+# recordings it cannot decode.
+imageio-ffmpeg>=0.4     # ships a static ffmpeg binary; no system install needed
+soundfile>=0.12         # lighter, but Layer III only

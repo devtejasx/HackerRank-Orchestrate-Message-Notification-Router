@@ -18,6 +18,7 @@ from src import config
 from src.data.loader import DataLoader
 from src.data.models import Message
 from src.data.repository import DataRepository
+from src.media.understanding import NullUnderstanding
 from src.personalization.base import SignalContext
 from src.personalization.engine import PersonalizationEngine
 from src.personalization.interaction_stats import InteractionStatsProvider
@@ -89,8 +90,26 @@ def busy_user(repo: DataRepository) -> str:
 
 @pytest.fixture(scope="session")
 def pipeline(repo: DataRepository) -> MessagePipeline:
-    """A Phase 2 pipeline over the real dataset."""
+    """A Phase 2 pipeline over the real dataset, configured as shipped.
+
+    Voice notes therefore arrive transcribed, because that is what
+    ``python main.py`` does. Tests about *silent* media want
+    :func:`silent_pipeline` instead.
+    """
     return MessagePipeline(repo)
+
+
+@pytest.fixture(scope="session")
+def silent_pipeline(repo: DataRepository) -> MessagePipeline:
+    """A pipeline with speech-to-text switched off.
+
+    For tests whose subject is a message with no readable content - the
+    behaviour that governed every voice note before Whisper was integrated,
+    and that still governs any voice note no model can transcribe. Stating the
+    provider explicitly keeps those tests testing what they mean to, rather
+    than quietly depending on whichever provider happens to be the default.
+    """
+    return MessagePipeline(repo, understanding=NullUnderstanding())
 
 
 @pytest.fixture(scope="session")

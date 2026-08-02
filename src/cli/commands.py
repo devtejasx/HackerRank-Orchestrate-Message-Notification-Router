@@ -21,6 +21,7 @@ from src.data.loader import DatasetError
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.evaluation import evaluate_samples
+from src.media.understanding import MediaUnderstanding
 from src.output import validate_results, write_submission
 from src.pipeline import MessagePipeline
 from src.routing.models import RoutingResult
@@ -80,6 +81,7 @@ def run_submission(
     strict: bool = False,
     write: bool = True,
     evaluate: bool = True,
+    understanding: MediaUnderstanding | None = None,
 ) -> int:
     """Run every phase over the whole dataset and write ``output.csv``.
 
@@ -95,6 +97,8 @@ def run_submission(
         write: Whether to write the file. ``False`` runs everything and reports
             without touching disk.
         evaluate: Whether to also measure against the labelled examples.
+        understanding: Speech-to-text / OCR provider. ``None`` uses
+            :func:`~src.media.understanding.default_understanding`.
 
     Returns:
         ``EXIT_OK`` on success, ``EXIT_FAILED`` if the dataset could not be
@@ -107,12 +111,13 @@ def run_submission(
         _LOGGER.error("Could not load the dataset: %s", exc)
         return EXIT_FAILED
 
-    pipeline = RoutingPipeline(repo)
+    pipeline = RoutingPipeline(repo, understanding=understanding)
     messages = repo.get_messages()
 
     render.heading("MESSAGE NOTIFICATION ROUTER")
     print(f"  dataset  : {repo.loader.dataset_dir}")
     print(f"  messages : {len(messages)}")
+    print(f"  media    : {pipeline.analysis.extractor.media.understanding.name}")
 
     results = pipeline.route_many(messages)
     elapsed = time.perf_counter() - started
@@ -152,6 +157,7 @@ def inspect_messages(
     route: bool = True,
     validate_dataset: bool = True,
     strict: bool = False,
+    understanding: MediaUnderstanding | None = None,
 ) -> int:
     """Walk through the pipeline for one or more messages, in detail.
 
@@ -183,7 +189,9 @@ def inspect_messages(
     render.print_dataset_summary(repo)
     render.print_repository_lookups(repo)
 
-    analysis_pipeline = MessagePipeline(repo, personalize=personalize)
+    analysis_pipeline = MessagePipeline(
+        repo, personalize=personalize, understanding=understanding
+    )
     routing = (
         RoutingPipeline(repo, analysis_pipeline=analysis_pipeline)
         if route and personalize
@@ -256,7 +264,10 @@ def check_dataset(
 
 
 def run_evaluation(
-    dataset_dir: Path | None = None, *, strict: bool = False
+    dataset_dir: Path | None = None,
+    *,
+    strict: bool = False,
+    understanding: MediaUnderstanding | None = None,
 ) -> int:
     """Measure the system against the labelled examples and print metrics.
 
@@ -273,7 +284,9 @@ def run_evaluation(
         _LOGGER.error("Could not load the dataset: %s", exc)
         return EXIT_FAILED
 
-    render.print_evaluation(evaluate_samples(RoutingPipeline(repo)))
+    render.print_evaluation(
+        evaluate_samples(RoutingPipeline(repo, understanding=understanding))
+    )
     return EXIT_OK
 
 

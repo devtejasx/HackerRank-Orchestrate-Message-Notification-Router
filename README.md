@@ -23,23 +23,39 @@ second and needs no API keys, network access or manual steps.
 
 | Measure | Result |
 |---|---|
-| **Action accuracy** vs the 30 labelled rows | **96.7%** (29/30) |
-| **`message_type` accuracy** | **96.7%** (29/30) |
+| **Action accuracy** vs the 30 labelled rows | **93.3%** (28/30) |
+| **`message_type` accuracy** | **93.3%** (28/30) |
 | Labelled scams delivered to a user | **0** |
-| Confidence, correct vs incorrect decisions | **0.81 vs 0.50** (gap **+0.31**) |
-| Evidence ids valid and correctly scoped | **80/80** |
+| Confidence, correct vs incorrect decisions | **0.83 vs 0.59** (gap **+0.24**) |
+| Evidence ids valid and correctly scoped | **77/77** |
 | Evidence whose reaction fits the action | **94%** |
 | Dataset corruptions survived with a complete, valid submission | **40/40** |
-| Tests | **684 passing** |
+| Voice notes transcribed | **13/13** |
+| Tests | **735 passing** |
 | Full run over 110 messages | **~1 second** (1.9 ms/message, linear to 5,500) |
 
-> The 96.7% is measured against the same 30 labelled rows the system was tuned
-> on, so it is an optimistic estimate rather than held-out performance. The
-> dataset provides no other labelled actions. See
-> [Known limitations](#known-limitations).
+> Measured against the same 30 labelled rows the system was tuned on, so it is
+> an optimistic estimate rather than held-out performance. The dataset provides
+> no other labelled actions. See [Known limitations](#known-limitations).
 
-The single disagreement is a voice note whose *category* needs speech
-recognition. **Routing is correct on every message the classifier got right.**
+**This number went down when Whisper was added — 96.7% to 93.3% — while actual
+routing quality went up.** Both statements are true and the tension is worth
+understanding before reading further:
+
+- On the **110 real messages**, transcription changed 5 rows and 4 are clearly
+  better: a genuine airport-booking change is no longer muted as spam, a
+  same-day school transport update now interrupts, credit-card telemarketing is
+  muted, and an OTP phishing attempt is now typed `scam` rather than `spam`.
+- On the **30 labelled rows**, it cost one: `sample_msg_043` is a call-centre
+  recording whose transcript contains the polite phrase *"who can help you
+  out"*. `help` is an urgency keyword, so the row flips from `mute`/`spam` to
+  `notify`/`urgent`.
+
+The labelled set contains 3 voice notes; the dataset contains 13. A 30-row
+proxy moved by one row is a weaker signal than 5 changed rows judged against
+their own audio, which is why transcription ships enabled. The details, and
+the measurement showing that removing `help` makes things *worse* overall, are
+in [Known limitations](#known-limitations).
 
 ---
 
@@ -96,11 +112,11 @@ dataset/messages.csv
 output.csv  +  dataset/output.csv
 ```
 
-Alongside Phase 2 sits the **multimodal seam** (`src/media/`): attachments are
-resolved to files on disk and offered to an OCR / speech-to-text provider whose
-recovered text rejoins the message body. No model is installed, so it recovers
-nothing today — but the wiring, the feature block and the tests already exist.
-See [Multimodal](#multimodal-where-ocr-and-whisper-plug-in).
+Ahead of Phase 2 sits the **multimodal seam** (`src/media/`): attachments are
+resolved to files on disk and handed to a speech-to-text or OCR provider, and
+whatever text comes back joins the message body before extraction runs. Voice
+notes are transcribed with Whisper; images are not read yet. See
+[Voice transcription](#voice-transcription).
 
 Each phase consumes the one before it and rebuilds nothing. A design decision
 made in Phase 2 — say, that a message is a `promotion` — flows through Phase 3
@@ -132,7 +148,7 @@ signals** rather than one blended score, and why Phase 4 combines them with
 | `python main.py --schema-only` | Dataset schema; needs no data on disk |
 | `python main.py --data-only` | Phase 1 checks only |
 | `python main.py --no-write` | Run and validate, write nothing |
-| `python -m pytest` | 684 tests |
+| `python -m pytest` | 735 tests |
 
 Useful flags: `--dataset DIR`, `--output PATH`, `--log-level`, `--strict`,
 `--no-personalize`, `--no-route`, `--limit N`.
@@ -192,7 +208,10 @@ blocking.
 ```text
 .
 ├── main.py                     ← entry point: parses args, dispatches
+├── output.csv                  the submission (mirrored to dataset/)
+├── transcripts.json            cached voice transcripts, keyed by media_id
 ├── requirements.txt
+├── requirements-voice.txt      optional: faster-whisper + audio decoders
 ├── pyproject.toml              packaging + pytest config
 ├── code/
 │   ├── main.py                 delegates to ./main.py
@@ -215,14 +234,16 @@ blocking.
 │   ├── personalization/        PHASE 3 — 10 signal calculators + engine
 │   ├── routing/                PHASE 4 — rules, decision, evidence, reason
 │   ├── output/                 PHASE 5 — validation + CSV writer
-│   ├── media/                  multimodal seam — OCR / speech-to-text plug point
+│   ├── media/                  multimodal — speech-to-text, and the OCR seam
 │   │   ├── content.py          attachment + recovered-content records
-│   │   ├── understanding.py    the provider interface (null by default)
-│   │   └── resolver.py         registry lookup, disk check, caching
+│   │   ├── understanding.py    the provider interface + default resolution
+│   │   ├── whisper.py          faster-whisper speech-to-text
+│   │   ├── cache.py            transcripts.json, keyed by media_id
+│   │   └── resolver.py         registry lookup, disk check, per-run caching
 │   ├── evaluation/             measurement against labelled rows
 │   ├── pipeline.py             Phases 1–3
 │   └── utils/                  coercion, text analysis
-└── tests/                      684 tests
+└── tests/                      735 tests
 ```
 
 Detailed design notes per phase: [`DATA_LAYER.md`](./DATA_LAYER.md),
@@ -265,57 +286,137 @@ explicit `--output PATH` writes exactly one file, where you asked for it.
 
 ---
 
-## Multimodal: where OCR and Whisper plug in
+## Voice transcription
 
 23 of 110 incoming messages carry an image or a voice note, and 8 of those have
-no text at all. Nothing here reads pixels or audio. What exists instead is a
-finished seam with a null provider in it — the load-bearing decision being that
-**recovered text is not a special case**. It is appended to the typed body
-before feature extraction, so length, URLs, currency, scam vocabulary and
-urgency all cover a transcript automatically.
+no text at all. **Voice notes are transcribed with Whisper** before they enter
+the pipeline. Images are not read; OCR is still unimplemented.
+
+The load-bearing decision is that **a transcript is not a special case**. It is
+appended to the typed body before feature extraction, so length, URLs,
+currency, scam vocabulary and urgency all cover it automatically. Nothing in
+feature extraction, classification, personalisation or routing was changed to
+support speech:
 
 ```text
-message.media_id
-  → MediaResolver         registry lookup, then filesystem check     ✅ built
-  → MediaUnderstanding    OCR / speech-to-text                       ⬅ plug here
-  → MediaFeatures         provenance + recovered text                ✅ built
-  → FeatureExtractor      recovered text joins the typed body        ✅ built
+voice note
+  → MediaResolver          registry lookup, then filesystem check
+  → WhisperTranscriber     faster-whisper
+  → TranscriptCache        keyed by media_id, persisted to transcripts.json
+  → MediaFeatures          transcript + provenance + confidence
+  → FeatureExtractor       the transcript becomes the message body
+  → classifier → personalisation → routing        (all unchanged)
 ```
 
-Installing a model is one class and one argument:
+`tests/test_whisper.py::TestVoiceEqualsText` is the guard on that claim: for
+five different transcripts it asserts that a voice note transcribing to some
+text produces the *same* tokens, keywords, category and action as a text
+message containing that text. If a special case ever creeps in, those fail.
 
-```python
-class WhisperTranscriber:
-    name = "whisper-small"
+### Installation
 
-    def supports(self, modality):
-        return modality is MediaModality.VOICE
+Transcription is optional. The project runs, and routes voice notes, without it:
 
-    def understand(self, attachment):
-        result = self._model.transcribe(str(attachment.file_path))
-        return MediaContent(text=result["text"], provider=self.name, confidence=0.8)
-
-RoutingPipeline.load(understanding=WhisperTranscriber())
+```bash
+pip install -r requirements.txt          # core — always needed
+pip install -r requirements-voice.txt    # optional — adds live transcription
 ```
 
-No feature, rule, classifier, evidence or writer change. `tests/test_media.py`
-proves it: a fake transcriber is written exactly as the real one would be, and
-the tests assert its output reaches the keyword matcher and changes routing.
+Three levels, resolved automatically by `default_understanding()`:
 
-Three guarantees make the seam safe to rely on:
+| Available | Behaviour |
+|---|---|
+| `faster-whisper` installed | Voice notes are transcribed; results cached to `transcripts.json` |
+| Not installed, but `transcripts.json` present | Committed transcripts are reused — full benefit, no dependency |
+| Neither | Voice notes route on sender context alone, exactly as before Whisper |
+
+**`transcripts.json` is committed deliberately.** It is a cache, not a label
+file: derived from `dataset/media/audio/` by a documented command, keyed by
+`media_id`, and fingerprinted against the audio so replacing a file invalidates
+its entry. Committing it means a grader without `faster-whisper` still sees the
+system as designed. Rebuild it any time with:
+
+```bash
+python main.py --refresh-transcripts
+```
+
+`faster-whisper` downloads model weights on first use (~150 MB for `base`) and
+decodes audio with PyAV. Where PyAV cannot load — a locked-down host, a slim
+container — `best_available_decoder()` falls back to ffmpeg or libsndfile
+rather than losing transcription entirely.
+
+### Controls
+
+| Flag | Effect |
+|---|---|
+| `--no-transcribe` | Skip speech-to-text; voice notes route on context alone |
+| `--whisper-model SIZE` | `tiny`, `base` (default), `small`, … |
+| `--refresh-transcripts` | Discard the cache and re-transcribe from audio |
+
+### What it changed
+
+Transcription moved 5 of 110 rows, **all of them voice notes**:
+
+| Message | Before | After | Transcript |
+|---|---|---|---|
+| `msg_081` | digest / personal | **notify / event** | *"this is from School Transport. Today's pickup will be from Gate 2…"* |
+| `msg_084` | digest / business_update | **mute / promotion** | credit-card telemarketing, *"press 1 now"* |
+| `msg_086` | mute / spam | **digest / business_update** | *"Your airport pickup for tomorrow has moved to 6.15 a.m."* |
+| `msg_085` | mute / spam | **mute / scam** | *"Your bank account will be blocked today. Share the OTP…"* |
+| `msg_087` | digest / personal | digest / event | real-estate robocall, *"dial eight to… unsubscribe"* |
+
+Four are clear improvements — a real booking change is no longer muted as spam,
+a same-day school logistics update now interrupts, telemarketing is muted, and
+an OTP phishing attempt is now typed `scam` rather than `spam`. The fifth
+(`msg_087`) is still wrong: it should be `mute`/`promotion`, and `event` is no
+better than the `personal` it replaced.
+
+**On the labelled set this reads as a regression**, and the honest number is
+below: 96.7% → 93.3%. See [Known limitations](#known-limitations) for why the
+two figures disagree.
+
+Two second-order effects, both intended:
+
+- **Historical voice notes become classifiable too.** The evidence engine
+  classifies `message_history.csv` with the same classifier, so a transcribed
+  historical voice note can now be cited as evidence — which is how one *text*
+  message (`msg_089`) gained evidence it previously had none of. Its action and
+  category are unchanged; a test pins that this is the only way transcription
+  may touch a non-voice row.
+- **The opacity penalty stops applying.** A message whose content could not be
+  read takes an explicit confidence penalty
+  (`CalibrationModel.opacity_penalty`). Transcribing a voice note removes it,
+  because the decision is no longer being made blind.
+
+### Guarantees
 
 | Guarantee | Why it matters |
 |---|---|
 | A provider never sees an unreadable file | The resolver checks the registry *and* the filesystem first |
 | A provider that raises cannot fail the run | `SafeUnderstanding` wraps every provider; a crash costs one transcript, not `output.csv` |
-| Each attachment is read at most once | Results are cached by media id — `img_008` appears three times, and transcription is expensive |
+| Missing, corrupt and unsupported audio all return an empty transcript | The contract requires a prediction for every message, including ones no model could read |
+| Each attachment is transcribed at most once, ever | In-memory within a run, `transcripts.json` across runs |
+| A failed transcription is never cached | Failures are usually environmental; caching one would make a missing install permanent |
+| A transcript never scores above 0.95 confidence | It is evidence about the message, not the message itself |
 
-**Until a model is installed, the confidence column says so.** A message whose
-content could not be read at all takes an explicit opacity penalty
-(`CalibrationModel.opacity_penalty`). Routing a voice note on sender history is
-often right, but it is a call made blind — the same sender can send "running
-late" and "the hospital just rang". Admitting that widened the calibration gap
-from +0.22 to **+0.31** with no loss of accuracy.
+### Adding OCR
+
+The seam is unchanged and still open. An image provider is the same one-class
+change Whisper was:
+
+```python
+class TesseractOCR:
+    name = "tesseract"
+
+    def supports(self, modality):
+        return modality is MediaModality.IMAGE
+
+    def understand(self, attachment):
+        return MediaContent(text=pytesseract.image_to_string(attachment.file_path),
+                            provider=self.name, confidence=0.6)
+
+RoutingPipeline.load(understanding=CompositeUnderstanding(WhisperTranscriber(), TesseractOCR()))
+```
 
 ---
 
@@ -424,7 +525,7 @@ DecisionEngine(thresholds=Thresholds(heavy_forward_count=12))
 ## Testing
 
 ```bash
-python -m pytest              # 684 passed
+python -m pytest              # 735 passed
 ```
 
 | Suite | Covers |
@@ -435,6 +536,7 @@ python -m pytest              # 684 passed
 | `test_normalization`, `test_calculators`, `test_personalization_engine` | Phase 3 |
 | `test_routing` | Phase 4 |
 | `test_media` | multimodal seam — resolution, providers, the integration claim |
+| `test_whisper` | transcriber, transcript cache, and voice/text equivalence |
 | `test_robustness` | 40 dataset corruptions, degradation, determinism |
 | `test_submission` | end-to-end, output contract, CSV, performance |
 | `test_main` | CLI dispatch |
@@ -457,13 +559,32 @@ rows they are measured on. The refinements were principled corrections
 diagnosed from specific failures rather than curve-fitting, but the honest claim
 is "no known systematic error", not "96.7% on unseen data".
 
-**Media-only messages cannot be routed on content.** Eight of 110 incoming
-messages carry only an image or a voice note. Without OCR or speech recognition
-the decision rests on sender context alone — which is exactly why the one
-remaining disagreement is a voice note. The seam for fixing this is built and
-tested (see [Multimodal](#multimodal-where-ocr-and-whisper-plug-in)); the model
-is deliberately not installed, and the confidence column discounts every
-decision made blind rather than pretending otherwise.
+**The labelled-set score and real routing quality disagree, and the labelled
+score is the one that went down.** Detailed above; the short version is that
+transcription improved 4 of the 5 rows it moved on the full dataset and cost 1
+of 30 on the labelled proxy. Shipping it enabled is a judgement call, made on
+the strength of the evidence rather than the headline number, and the headline
+number is reported unadjusted.
+
+**`sample_msg_043` is a real miss, not a measurement artefact.** A call-centre
+recording transcribes to text containing *"who can help you out"*; `help` is an
+urgency keyword, so it routes `notify`/`urgent` when it should be `mute`/`spam`
+— the worst kind of error, interrupting a user with spam. The obvious fix is to
+drop the bare keyword `help`, and that was measured rather than assumed: doing
+so drops `both correct` from 93.3% to **90.0%**, because it breaks
+`sample_msg_051`, where `help` is a genuine distress signal. The keyword stays.
+Spoken language carries far more politeness filler than typed text, and the
+urgency vocabulary was tuned on the latter; adapting it properly needs labelled
+*speech*, which the dataset does not provide.
+
+**Images are still not read.** 15 of 110 incoming messages carry an image, and
+their captions are the only signal. OCR would use exactly the seam Whisper
+does — see [Adding OCR](#adding-ocr) — and is the clearest remaining gain.
+
+**Transcripts are cached, so a fresh dataset costs model time.** Voice notes
+not in `transcripts.json` need `faster-whisper` installed to be transcribed;
+without it they fall back to sender context and the confidence column discounts
+them. A hidden evaluation set would be entirely uncached.
 
 **Repaired cells are silent in the output.** A row whose timestamp was
 unreadable still gets a prediction, and nothing in `output.csv` marks it as
@@ -488,14 +609,23 @@ honestly rather than hiding it.
 
 ## Future improvements
 
-- **OCR and speech recognition** for the eight media-only messages — the single
-  clearest remaining accuracy gain, the cause of the one known miss, and now a
-  one-class change thanks to `src/media/`. Whisper-small for voice, Tesseract or
-  a small vision model for the poster and screenshot images.
+- **OCR for the 15 image messages** — the clearest remaining accuracy gain now
+  that voice is handled, and the same one-class change through `src/media/`.
+  Tesseract or a small vision model for the poster and screenshot images.
 - **Weight recovered text below typed text.** `MediaFeatures.derived_confidence`
-  is carried through extraction and currently unused by the rules. Once a real
-  provider exists, a low-confidence transcript should move a decision less than
-  a sentence the sender actually typed.
+  is carried through extraction and still unused by the rules. A transcript
+  scored 0.34 should move a decision less than one scored 0.75, and less than a
+  sentence the sender actually typed. This is now concrete rather than
+  hypothetical: real confidences on this dataset range 0.34–0.76.
+- **An urgency vocabulary tuned for speech.** `sample_msg_043` misroutes
+  because *"who can help you out"* is polite call-centre filler that the
+  urgency keyword `help` reads as distress. Typed messages rarely contain such
+  filler; transcripts are full of it. Fixing this properly needs labelled
+  speech, and removing the keyword outright measurably makes things worse.
+- **A larger Whisper model.** `base` runs in about a second per note on CPU;
+  `small` would likely resolve the mis-hearings visible in the transcripts
+  (*"Dad is on well"* → *"Dad is unwell"* was corrected by moving up from
+  `tiny`).
 - **Held-out validation.** With more labelled actions, split the data and report
   real generalisation instead of a tuned-set figure.
 - **Digest scheduling** — batching, timing and quiet-hours-aware delivery.
@@ -532,6 +662,11 @@ nothing in the pipeline interprets message content as instructions.
 pandas>=2.0        runtime
 pytest>=7.0        tests
 ruff>=0.5          linting
+
+faster-whisper     optional — live voice transcription
+imageio-ffmpeg     optional — audio decoding where PyAV cannot load
+soundfile          optional — lighter alternative to the above
 ```
 
-Python 3.11+. No network access, API keys or external services.
+Python 3.11+. No API keys or external services. The core run needs no network;
+`faster-whisper` downloads model weights on first use, and never again.

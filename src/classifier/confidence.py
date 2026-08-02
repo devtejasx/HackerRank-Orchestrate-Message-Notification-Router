@@ -25,11 +25,19 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from src.classifier.enums import KeywordCategory, MessageType
-from src.features.feature_models import MessageFeatures
 from src.utils.helpers import clamp
+
+if TYPE_CHECKING:
+    # Annotation-only. Importing this at runtime closes a cycle - features
+    # imports classifier.enums, which initialises the classifier package, which
+    # imports this module - and makes `import src.media` fail depending on
+    # which package the process happens to touch first. Annotations are strings
+    # here (`from __future__ import annotations`), so nothing needs it at
+    # runtime.
+    from src.features.feature_models import MessageFeatures
 
 __all__ = ["ConfidenceModel", "DEFAULT_CONFIDENCE", "score_confidence"]
 

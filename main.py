@@ -10,6 +10,10 @@ predictions and writes ``dataset/output.csv``.
     Repository -> Features -> Classification -> Routing signals
       -> Decision -> Evidence -> Reason -> Confidence -> output.csv
 
+Voice notes are transcribed with Whisper before they enter that pipeline, and
+transcripts are cached in ``transcripts.json`` so repeat runs cost nothing.
+Use ``--no-transcribe`` to route them on context alone.
+
 Other modes:
 
     python main.py --inspect                 walk through a few messages
@@ -100,6 +104,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Skip the evaluation against the labelled examples.",
     )
 
+    voice = parser.add_argument_group("voice transcription")
+    voice.add_argument(
+        "--no-transcribe",
+        action="store_true",
+        help="Do not transcribe voice notes. They route on sender context alone.",
+    )
+    voice.add_argument(
+        "--whisper-model",
+        metavar="SIZE",
+        default=None,
+        help="Whisper weights to use, e.g. tiny, base, small (default: base).",
+    )
+    voice.add_argument(
+        "--refresh-transcripts",
+        action="store_true",
+        help="Discard cached transcripts and re-run speech-to-text from the audio.",
+    )
+
     mode = parser.add_argument_group("modes")
     mode.add_argument(
         "--inspect",
@@ -165,8 +187,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.data_only:
         return commands.check_dataset(args.dataset, strict=args.strict)
 
+    understanding = _build_understanding(args)
+
     if args.evaluate:
-        return commands.run_evaluation(args.dataset, strict=args.strict)
+        return commands.run_evaluation(
+            args.dataset, strict=args.strict, understanding=understanding
+        )
 
     if args.inspect or args.message or args.limit or args.all:
         return commands.inspect_messages(
@@ -178,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             route=not args.no_route,
             validate_dataset=not args.no_validate,
             strict=args.strict,
+            understanding=understanding,
         )
 
     return commands.run_submission(
@@ -187,6 +214,33 @@ def main(argv: list[str] | None = None) -> int:
         strict=args.strict,
         write=not args.no_write,
         evaluate=not args.no_evaluate,
+        understanding=understanding,
+    )
+
+
+def _build_understanding(args: argparse.Namespace) -> object:
+    """Build the media provider the run should use, from the voice flags.
+
+    Args:
+        args: The parsed namespace.
+
+    Returns:
+        A provider, always. ``--no-transcribe`` yields one that recovers
+        nothing rather than ``None``, so the choice is explicit rather than
+        left to a downstream default.
+    """
+    from src.media.cache import TranscriptCache
+    from src.media.understanding import default_understanding
+
+    if args.refresh_transcripts:
+        # Emptied before the provider reads it, so this run re-transcribes and
+        # writes the results back.
+        cache = TranscriptCache()
+        cache.clear()
+        cache.save()
+
+    return default_understanding(
+        transcribe=not args.no_transcribe, model_size=args.whisper_model
     )
 
 

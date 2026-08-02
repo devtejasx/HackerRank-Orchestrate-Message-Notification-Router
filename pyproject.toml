@@ -7,6 +7,11 @@ dependencies = ["pandas>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# Speech-to-text for voice notes. Optional: without it the committed
+# transcripts are reused, and uncovered audio routes on context alone.
+voice = ["faster-whisper>=1.0"]
+# Fallback audio decoders, for environments where PyAV cannot be loaded.
+voice-fallback = ["faster-whisper>=1.0", "imageio-ffmpeg>=0.4", "soundfile>=0.12"]
 
 [tool.pytest.ini_options]
 # Put the repository root on sys.path so `import src` works from tests/.

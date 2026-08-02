@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from src.classifier.confidence import (
     DEFAULT_CONFIDENCE,
@@ -21,7 +21,10 @@ from src.classifier.confidence import (
 )
 from src.classifier.enums import MessageType
 from src.classifier.rules import DEFAULT_WEIGHTS, Signal, Weights, collect_signals
-from src.features.feature_models import MessageFeatures
+
+if TYPE_CHECKING:
+    # Annotation-only; see the note in src.classifier.confidence.
+    from src.features.feature_models import MessageFeatures
 
 __all__ = ["MessageClassification", "MessageClassifier"]
 

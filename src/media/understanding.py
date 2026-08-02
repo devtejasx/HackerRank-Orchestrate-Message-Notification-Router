@@ -1,26 +1,28 @@
 """The plug point for OCR and speech-to-text.
 
-Nothing in this project reads pixels or audio. What it has instead is one
-narrow interface - :class:`MediaUnderstanding` - that the rest of the pipeline
-already calls on every media message, wired to a provider that returns nothing.
+This module is the *abstraction*: one narrow interface,
+:class:`MediaUnderstanding`, that the pipeline calls on every media message.
+It deliberately knows nothing about any particular model.
 
-Installing a real model is therefore additive:
+Speech-to-text is implemented against it in :mod:`src.media.whisper` and is
+enabled by default via :func:`default_understanding`. Image OCR is not
+implemented; an image still contributes no derived text.
+
+A provider is two methods and no framework:
 
 .. code-block:: python
 
-    class WhisperTranscriber:
-        name = "whisper-small"
+    class TesseractOCR:
+        name = "tesseract"
 
         def supports(self, modality: MediaModality) -> bool:
-            return modality is MediaModality.VOICE
+            return modality is MediaModality.IMAGE
 
         def understand(self, attachment: MediaAttachment) -> MediaContent:
-            result = self._model.transcribe(str(attachment.file_path))
             return MediaContent(
-                text=result["text"],
+                text=pytesseract.image_to_string(attachment.file_path),
                 provider=self.name,
-                confidence=0.8,
-                language=result.get("language"),
+                confidence=0.6,
             )
 
     pipeline = RoutingPipeline.load(
@@ -28,8 +30,9 @@ Installing a real model is therefore additive:
     )
 
 That is the whole integration. No feature, rule, classifier or writer changes,
-because recovered text already flows into text and keyword extraction the same
-way a typed body does - see :class:`~src.media.resolver.MediaResolver`.
+because recovered text flows into text and keyword extraction the same way a
+typed body does - see :class:`~src.media.resolver.MediaResolver`. Adding
+Whisper required exactly this and nothing more.
 
 Two guarantees make that safe to rely on:
 
@@ -183,11 +186,59 @@ class SafeUnderstanding:
             return MediaContent.EMPTY
 
 
-def default_understanding() -> MediaUnderstanding:
+def default_understanding(
+    *, transcribe: bool = True, model_size: str | None = None
+) -> MediaUnderstanding:
     """Return the provider used when a caller supplies none.
 
-    Kept as a function rather than a module constant so installing a real model
-    is a one-line change here, and so every construction path - pipeline, CLI,
-    tests - picks it up without being edited.
+    Resolves to the best transcription available in this environment, in
+    descending order:
+
+    1. **Cached transcripts plus a live model** - the normal case once
+       ``faster-whisper`` is installed. Voice notes already transcribed are
+       served from ``transcripts.json``; new ones are transcribed and recorded.
+    2. **Cached transcripts alone** - ``faster-whisper`` is absent, but the
+       committed cache still covers this dataset's voice notes, so routing
+       keeps the benefit of transcription without the dependency.
+    3. **Nothing** - no model and no cache. Voice notes route on sender context
+       alone, exactly as they did before Whisper was integrated, and the
+       confidence column discounts them for it.
+
+    Every step degrades; none raises. Image OCR is still unimplemented at every
+    level, so an image contributes no derived text regardless.
+
+    Args:
+        transcribe: Set ``False`` to force level 3 and skip audio entirely.
+        model_size: Whisper weights to load. Defaults to
+            :data:`~src.media.whisper.DEFAULT_MODEL_SIZE`.
+
+    Returns:
+        A provider that is always safe to call.
     """
+    # Imported here rather than at module scope: this module is the abstraction
+    # and must not depend on any particular implementation of it.
+    from src.media.cache import CachingUnderstanding, TranscriptCache
+    from src.media.whisper import DEFAULT_MODEL_SIZE, WhisperTranscriber, is_whisper_available
+
+    if not transcribe:
+        return NullUnderstanding()
+
+    cache = TranscriptCache()
+    if is_whisper_available():
+        transcriber = WhisperTranscriber(model_size or DEFAULT_MODEL_SIZE)
+        _LOGGER.debug("Transcription enabled via %s", transcriber.name)
+        return CachingUnderstanding(transcriber, cache)
+
+    if len(cache):
+        _LOGGER.info(
+            "faster-whisper is not installed; using %d cached transcript(s) from %s",
+            len(cache),
+            cache.path.name,
+        )
+        return CachingUnderstanding(NullUnderstanding(), cache)
+
+    _LOGGER.info(
+        "No transcription available (faster-whisper not installed, no cached "
+        "transcripts); voice notes will route on context alone"
+    )
     return NullUnderstanding()
