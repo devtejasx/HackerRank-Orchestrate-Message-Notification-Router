@@ -41,6 +41,25 @@ def resolve_dataset_dir() -> Path:
 #: Directory holding every participant-facing CSV.
 DATASET_DIR: Final[Path] = resolve_dataset_dir()
 
+_OUTPUT_PATH_ENV_VAR: Final[str] = "MNR_OUTPUT_CSV"
+_DEFAULT_OUTPUT_FILENAME: Final[str] = "output.csv"
+
+
+def resolve_output_path() -> Path:
+    """Return the path predictions are written to.
+
+    Overridable with ``MNR_OUTPUT_CSV`` so a run can write somewhere else
+    without touching the shipped template.
+    """
+    override = os.environ.get(_OUTPUT_PATH_ENV_VAR)
+    if override:
+        return Path(override).expanduser().resolve()
+    return DATASET_DIR / _DEFAULT_OUTPUT_FILENAME
+
+
+#: Where ``python main.py`` writes its predictions.
+OUTPUT_CSV: Final[Path] = resolve_output_path()
+
 #: Root of the binary media referenced by ``images.csv`` / ``voice_notes.csv``.
 #: Both CSVs store paths relative to :data:`DATASET_DIR`, e.g. ``media/images/img_001.jpg``.
 MEDIA_DIR: Final[Path] = DATASET_DIR / "media"
@@ -154,3 +173,39 @@ STRICT_VALIDATION: Final[bool] = os.environ.get("MNR_STRICT_VALIDATION", "0") in
 
 #: Cap on how many example offenders a single validation issue reports.
 MAX_ISSUE_EXAMPLES: Final[int] = 5
+
+# --------------------------------------------------------------------------- #
+# Output format
+#
+# The submission contract, fixed by the challenge. These are not tunable.
+# --------------------------------------------------------------------------- #
+
+#: Encoding used when writing predictions.
+OUTPUT_ENCODING: Final[str] = "utf-8"
+
+#: Line terminator. Explicit so output is byte-identical on every platform
+#: rather than depending on the host's newline convention.
+OUTPUT_LINE_TERMINATOR: Final[str] = "\n"
+
+#: Decimal places kept on the confidence column.
+CONFIDENCE_DECIMALS: Final[int] = 2
+
+# --------------------------------------------------------------------------- #
+# Where the remaining tunables live
+#
+# Deliberately *not* gathered here. Each group is a typed, documented dataclass
+# next to the code it governs, which keeps every value beside the reasoning
+# that justifies it and lets callers override a whole group by passing one
+# object. A flat list of constants in this module would separate the numbers
+# from their rationale and make that override impossible.
+#
+#   Classification weights .... src.classifier.rules.Weights
+#   Classifier confidence ..... src.classifier.confidence.ConfidenceModel
+#   Keyword vocabularies ...... src.classifier.keyword_rules.DEFAULT_KEYWORDS
+#   Engagement weighting ...... src.features.historical_features.EngagementWeights
+#   Routing rule thresholds ... src.routing.rules.Thresholds
+#   Routing type priors ....... src.routing.rules.TYPE_PRIORS
+#   Routing confidence ........ src.routing.confidence.CalibrationModel
+#
+# See the Configuration section of README.md.
+# --------------------------------------------------------------------------- #

@@ -75,7 +75,7 @@ class Router:
         """
         decision = self._decision_engine.decide(context)
         evidence = self._evidence_engine.find(context, decision.action)
-        reason = self._reason_generator.generate(decision, evidence)
+        reason = self._reason_generator.generate(decision, evidence, context)
         confidence = self._calibrator.calibrate(context, decision, evidence)
 
         _LOGGER.debug(

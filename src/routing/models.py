@@ -74,6 +74,10 @@ class RuleOutcome:
         override: When true this rule forces its action regardless of the
             accumulated scores. Reserved for safety: a confirmed scam is muted
             even if every other signal is enthusiastic.
+        generic: When true this outcome's reason restates something already
+            visible elsewhere in the output - the category, typically - and so
+            is used to explain a decision only when nothing more specific
+            contributed. It still carries full weight in the scoring.
     """
 
     rule: str
@@ -81,6 +85,7 @@ class RuleOutcome:
     weight: float
     reason: str
     override: bool = False
+    generic: bool = False
 
     def __post_init__(self) -> None:
         """Guard the invariant the aggregation relies on."""

@@ -159,14 +159,19 @@ def _decisive_for(
     action: RoutingAction,
     override: RuleOutcome | None,
 ) -> tuple[RuleOutcome, ...]:
-    """Return the outcomes that carried the winning action, strongest first.
+    """Return the outcomes that carried the winning action, most telling first.
+
+    Ordered by (specific before generic, then weight). A generic outcome
+    restates something already visible elsewhere in the output, so it should
+    explain a decision only when nothing more informative contributed - even
+    though it may well have carried the most weight.
 
     An override is always listed first: when a safety rule forced the outcome,
     that is the honest explanation regardless of what else was accumulating.
     """
     supporting = sorted(
         (outcome for outcome in outcomes if outcome.action is action),
-        key=lambda outcome: -outcome.weight,
+        key=lambda outcome: (outcome.generic, -outcome.weight),
     )
     if override is not None:
         supporting = [override] + [o for o in supporting if o is not override]

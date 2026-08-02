@@ -125,6 +125,10 @@ def type_prior(context: DecisionContext, _: Thresholds) -> Iterable[RuleOutcome]
             action=action,
             weight=weight,
             reason=f"The message is classified as {label}.",
+            # The category already occupies its own output column, so leading
+            # an explanation with it wastes the sentence. Marked generic so it
+            # explains only when nothing more specific fired.
+            generic=True,
         )
 
 

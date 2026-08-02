@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from typing import Final
 
 from src.routing.models import (
+    DecisionContext,
     RoutingAction,
     RoutingDecision,
     RoutingEvidence,
@@ -53,12 +54,16 @@ class ReasonGenerator:
         self,
         decision: RoutingDecision,
         evidence: RoutingEvidence | None = None,
+        context: DecisionContext | None = None,
     ) -> RoutingReason:
         """Return the explanation for ``decision``.
 
         Args:
             decision: The decision to explain.
             evidence: Supporting history, mentioned only when it exists.
+            context: The routed message, used to add a concrete detail when no
+                specific rule fired. Optional, so the generator stays usable
+                without it.
 
         Returns:
             A single sentence plus the individual rule reasons behind it.
@@ -66,6 +71,13 @@ class ReasonGenerator:
         clauses = _clauses(decision.decisive)
         if not clauses:
             return RoutingReason(text=_FALLBACK[decision.action])
+
+        # When every contributing rule was generic, the sentence so far only
+        # restates the category. A fact about the sender makes it say something.
+        if context is not None and all(o.generic for o in decision.decisive):
+            detail = _sender_detail(context)
+            if detail:
+                clauses.append(detail)
 
         sentence = _join(clauses)
         if evidence is not None and evidence.has_evidence:
@@ -75,6 +87,43 @@ class ReasonGenerator:
             text=_truncate(sentence),
             supporting=tuple(outcome.reason for outcome in decision.decisive),
         )
+
+
+def _sender_detail(context: DecisionContext) -> str | None:
+    """Return one concrete fact about who sent the message.
+
+    Drawn from the repository rather than invented, and chosen to be the thing
+    a reader would most want to know: which business, which group, or how
+    familiar the individual is.
+    """
+    features = context.features
+    history = features.history
+
+    if features.business_id:
+        business = context.repo.get_business(features.business_id)
+        if business is None:
+            return None
+        standing = (
+            "a business the user deals with"
+            if history.has_business_relationship
+            else "a business the user has no relationship with"
+        )
+        return f"It comes from {business.display_name}, {standing}."
+
+    if features.group_id:
+        group = context.repo.get_group(features.group_id)
+        if group is None:
+            return None
+        return f"It was posted in {group.group_name}."
+
+    if features.sender_user_id:
+        if history.sender_message_count == 0:
+            return "It comes from a sender the user has not heard from before."
+        return (
+            f"It comes from a contact the user has exchanged "
+            f"{history.sender_message_count} message(s) with."
+        )
+    return None
 
 
 def _clauses(decisive: Sequence[RuleOutcome]) -> list[str]:
