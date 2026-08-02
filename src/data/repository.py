@@ -319,24 +319,29 @@ class DataRepository:
     # Media
     # ------------------------------------------------------------------ #
 
+    def get_media(self, media_type: str | None, media_id: str | None) -> Image | VoiceNote | None:
+        """Return the media registry row for ``media_id``, or ``None``.
+
+        Args:
+            media_type: ``image`` or ``voice``. Anything else - including a
+                modality a future dataset introduces - yields ``None`` rather
+                than raising.
+            media_id: The message's ``media_id`` cell.
+        """
+        if media_id is None or media_type is None:
+            return None
+        lookup = {"image": self.get_image, "voice": self.get_voice}.get(media_type)
+        return lookup(media_id) if lookup is not None else None
+
     def get_media_path(self, message: MessageRecord) -> Path | None:
         """Return the absolute path of a message's attachment, or ``None``.
 
         Resolves ``media_type``/``media_id`` through the right media table.
         Returns ``None`` when the message has no media or the id is unknown.
-        Later phases need this to reach the bytes; Hour 1 does not read them.
+        The path is not checked for existence; see
+        :class:`~src.media.resolver.MediaResolver` for that.
         """
-        if message.media_id is None or message.media_type is None:
-            return None
-
-        lookup = {
-            "image": self.get_image,
-            "voice": self.get_voice,
-        }.get(message.media_type)
-        if lookup is None:
-            return None
-
-        media = lookup(message.media_id)
+        media = self.get_media(message.media_type, message.media_id)
         if media is None:
             return None
         return resolve_dataset_path(media.file_path, self._loader.dataset_dir)

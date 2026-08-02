@@ -49,6 +49,11 @@ _R = TypeVar("_R", bound=Record)
 _M = TypeVar("_M", bound=MessageRecord)
 
 
+def _optional(loader: DataLoader, table: str) -> tuple[Record, ...]:
+    """Return ``table``'s records, or an empty tuple when the file is absent."""
+    return loader.records(table) if loader.is_available(table) else ()
+
+
 def _unique(records: Iterable[_R], key: Callable[[_R], object]) -> Mapping[object, _R]:
     """Build a read-only one-to-one index."""
     return MappingProxyType(index_by(records, key))  # type: ignore[arg-type]
@@ -149,16 +154,14 @@ def build_indexes(loader: DataLoader) -> DataIndex:
     messages: tuple[Message, ...] = loader.records("messages")  # type: ignore[assignment]
     history: tuple[MessageHistory, ...] = loader.records("message_history")  # type: ignore[assignment]
     events: tuple[MessageEvent, ...] = loader.records("message_events")  # type: ignore[assignment]
-    images: tuple[Image, ...] = loader.records("images")  # type: ignore[assignment]
-    voice_notes: tuple[VoiceNote, ...] = loader.records("voice_notes")  # type: ignore[assignment]
     summaries: tuple[NotificationSummary, ...] = loader.records("daily_notification_summary")  # type: ignore[assignment]
 
-    # sample_messages is reference-only and may legitimately be absent.
-    samples: tuple[SampleMessage, ...] = (
-        loader.records("sample_messages")  # type: ignore[assignment]
-        if loader.is_available("sample_messages")
-        else ()
-    )
+    # Optional tables. The media registries only resolve an attachment to a
+    # file on disk, and sample_messages is reference-only, so any of them may
+    # legitimately be absent from an evaluation dataset.
+    images: tuple[Image, ...] = _optional(loader, "images")  # type: ignore[assignment]
+    voice_notes: tuple[VoiceNote, ...] = _optional(loader, "voice_notes")  # type: ignore[assignment]
+    samples: tuple[SampleMessage, ...] = _optional(loader, "sample_messages")  # type: ignore[assignment]
 
     index = DataIndex(
         users_by_id=_unique(users, lambda r: r.user_id),

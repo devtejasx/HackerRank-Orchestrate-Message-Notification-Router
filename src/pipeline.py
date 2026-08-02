@@ -33,6 +33,7 @@ from src.data.models import Message
 from src.data.repository import DataRepository
 from src.features.extractor import FeatureExtractor
 from src.features.feature_models import MessageFeatures
+from src.media.understanding import MediaUnderstanding
 from src.personalization.engine import PersonalizationEngine
 from src.personalization.signal_models import RoutingSignals
 
@@ -90,6 +91,8 @@ class MessagePipeline:
         weights: Rule weighting override.
         confidence_model: Confidence tuning override.
         matcher: Keyword matcher override, for custom dictionaries.
+        understanding: OCR / speech-to-text provider. Defaults to the null
+            provider, which recovers nothing; see :mod:`src.media`.
 
     Example:
         >>> pipeline = MessagePipeline.load()               # doctest: +SKIP
@@ -106,9 +109,10 @@ class MessagePipeline:
         matcher: KeywordMatcher | None = None,
         personalize: bool = True,
         engine: PersonalizationEngine | None = None,
+        understanding: MediaUnderstanding | None = None,
     ) -> None:
         self._repo = repo
-        self._extractor = FeatureExtractor(repo, matcher=matcher)
+        self._extractor = FeatureExtractor(repo, matcher=matcher, understanding=understanding)
         self._classifier = MessageClassifier(weights, confidence_model)
         self._engine: PersonalizationEngine | None = None
         if personalize:

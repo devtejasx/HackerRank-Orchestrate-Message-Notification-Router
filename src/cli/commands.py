@@ -21,7 +21,7 @@ from src.data.loader import DatasetError
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.evaluation import evaluate_samples
-from src.output import validate_results, write_output_csv
+from src.output import validate_results, write_submission
 from src.pipeline import MessagePipeline
 from src.routing.models import RoutingResult
 from src.routing.pipeline import RoutingPipeline
@@ -117,7 +117,7 @@ def run_submission(
     results = pipeline.route_many(messages)
     elapsed = time.perf_counter() - started
 
-    report = validate_results(results, messages)
+    report = validate_results(results, messages, repo)
     report.log()
     render.print_output_validation(report)
 
@@ -132,8 +132,10 @@ def run_submission(
 
     render.heading("RESULT")
     if write:
-        destination = write_output_csv(results, output_path)
-        print(f"  Wrote {len(results)} prediction(s) to {destination}")
+        written = write_submission(results, output_path)
+        print(f"  Wrote {len(results)} prediction(s) to {written[0]}")
+        for mirror in written[1:]:
+            print(f"  Mirrored to {mirror}")
     else:
         print(f"  Validated {len(results)} prediction(s); nothing written.")
     print(f"  Completed in {elapsed:.1f}s.")

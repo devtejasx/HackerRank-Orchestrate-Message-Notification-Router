@@ -464,12 +464,11 @@ def muted_group(
     A directly-addressed or genuinely urgent message still gets through, which
     is the behaviour the brief describes.
     """
-    membership = (
-        context.repo.get_group_member(context.features.group_id, context.user_id)
-        if context.features.group_id
-        else None
-    )
-    if membership is None or not membership.group_muted_by_user:
+    # Read the extracted feature rather than re-querying the repository: the
+    # membership lookup already happened in Phase 2, and a rule that reaches
+    # back into the data layer can silently disagree with the features every
+    # other rule is reading.
+    if not context.features.context.group_muted:
         return
 
     if context.signals.urgency_modifier.score >= thresholds.strong_signal:

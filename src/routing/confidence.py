@@ -18,6 +18,11 @@ Four inputs:
 * **corroboration** - independent support: historical evidence, agreeing
   Phase 3 signals, a verified sender, an unambiguous safety override.
 
+Two penalties then pull it back down: genuine conflict between the rules, and
+*opacity* - a message whose content could not be read at all, such as a voice
+note with no transcript. Both describe reasons to be less sure that the score
+alone cannot express.
+
 Margin and agreement are squashed with ``tanh`` so the result saturates
 smoothly, and the whole thing is bounded to a band that never claims certainty.
 """
@@ -56,6 +61,10 @@ class CalibrationModel:
             argued for a different action.
         conflict_threshold: Share of weight opposing the winner that counts as
             genuine conflict.
+        opacity_penalty: Applied when the message's content could not be read
+            at all - an attachment with no caption and no transcript. The
+            decision may still be right, but it was made without seeing what
+            the message says, and the confidence column should admit that.
         floor: Lowest confidence ever returned.
         ceiling: Highest confidence ever returned. Below 1.0 because a
             rule-based router should never claim certainty.
@@ -70,6 +79,7 @@ class CalibrationModel:
     margin_scale: float = 1.80
     conflict_penalty: float = 0.08
     conflict_threshold: float = 0.40
+    opacity_penalty: float = 0.10
 
     floor: float = 0.30
     ceiling: float = 0.95
@@ -143,6 +153,7 @@ class ConfidenceCalibrator:
             context, decision, evidence
         )
         confidence -= self._conflict_penalty(agreement)
+        confidence -= self._opacity_penalty(context)
 
         return round(clamp(confidence, model.floor, model.ceiling), 2)
 
@@ -169,6 +180,32 @@ class ConfidenceCalibrator:
         if agreement >= (1.0 - self._model.conflict_threshold):
             return 0.0
         return self._model.conflict_penalty
+
+    def _opacity_penalty(self, context: DecisionContext) -> float:
+        """Penalise decisions made without seeing what the message says.
+
+        A voice note with no transcript is routed entirely on who sent it and
+        how the user has behaved before. That is often the right call, but it
+        is a call made blind: the same sender can send "running late" and "the
+        hospital just rang", and nothing in the pipeline can currently tell
+        them apart.
+
+        Reporting the same confidence for that as for a message whose text was
+        read in full would make the confidence column dishonest, and confidence
+        is scored on whether it tracks correctness. Installing OCR or
+        speech-to-text removes the penalty automatically, because the recovered
+        text stops the message being opaque - see :mod:`src.media`.
+
+        Applies only when there is *nothing* to read. An image with a caption
+        is partially observed and takes no penalty; its caption is real text
+        that the rules genuinely used.
+        """
+        features = context.features
+        if not features.media.has_attachment:
+            return 0.0
+        if not features.text.is_empty:
+            return 0.0
+        return self._model.opacity_penalty
 
 
 def _signals_agree(signals: RoutingSignals, action: RoutingAction) -> bool:

@@ -16,13 +16,16 @@ from src.classifier.keyword_rules import KeywordMatcher
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.features.context_features import extract_context_features
-from src.features.feature_models import MessageFeatures
+from src.features.feature_models import MediaFeatures, MessageFeatures
 from src.features.historical_features import (
     EngagementWeights,
     HistoricalFeatureExtractor,
 )
 from src.features.keyword_features import extract_keyword_features
 from src.features.text_features import extract_text_features
+from src.media.resolver import MediaResolver
+from src.media.understanding import MediaUnderstanding
+from src.utils.helpers import safe_text
 
 __all__ = ["FeatureExtractor"]
 
@@ -51,6 +54,8 @@ class FeatureExtractor:
         repo: DataRepository,
         matcher: KeywordMatcher | None = None,
         engagement_weights: EngagementWeights | None = None,
+        media: MediaResolver | None = None,
+        understanding: MediaUnderstanding | None = None,
     ) -> None:
         self._repo = repo
         self._matcher = matcher if matcher is not None else KeywordMatcher()
@@ -58,11 +63,17 @@ class FeatureExtractor:
             repo,
             engagement_weights if engagement_weights is not None else EngagementWeights(),
         )
+        self._media = media if media is not None else MediaResolver(repo, understanding)
 
     @property
     def matcher(self) -> KeywordMatcher:
         """The keyword matcher in use, exposed for inspection and testing."""
         return self._matcher
+
+    @property
+    def media(self) -> MediaResolver:
+        """The media resolver in use, exposed for inspection and testing."""
+        return self._media
 
     def extract(self, message: MessageRecord) -> MessageFeatures:
         """Build the complete feature record for one message.
@@ -78,6 +89,8 @@ class FeatureExtractor:
             An immutable, self-contained feature record. No further repository
             access is needed to read any field.
         """
+        media = self._media.resolve(message)
+        body = _analysable_text(message.message_text, media)
         return MessageFeatures(
             message_id=message.message_id,
             user_id=message.user_id,
@@ -85,10 +98,11 @@ class FeatureExtractor:
             group_id=message.group_id,
             business_id=message.business_id,
             created_at=message.created_at,
-            text=extract_text_features(message.message_text),
+            text=extract_text_features(body),
             context=extract_context_features(message, self._repo),
             history=self._historical.extract(message),
-            keywords=extract_keyword_features(message.message_text, self._matcher),
+            keywords=extract_keyword_features(body, self._matcher),
+            media=media,
         )
 
     def extract_many(
@@ -109,3 +123,34 @@ class FeatureExtractor:
     def extract_all(self) -> tuple[MessageFeatures, ...]:
         """Build feature records for every incoming message in the dataset."""
         return self.extract_many(self._repo.get_messages())
+
+
+def _analysable_text(message_text: object, media: MediaFeatures) -> object:
+    """Return the body that text and keyword extraction should see.
+
+    This one function is why installing OCR or speech-to-text needs no changes
+    anywhere else: text recovered from an attachment is appended to the typed
+    body, so every downstream reader - length, URLs, currency, scam
+    vocabulary, urgency - covers it automatically. A voice note with no typed
+    text stops being a message with nothing to analyse and becomes a message
+    whose body is its transcript.
+
+    With no provider installed :attr:`MediaFeatures.derived_text` is empty and
+    the typed body is returned unchanged, so the default path is byte-for-byte
+    what it was before the seam existed.
+
+    Args:
+        message_text: The raw ``message_text`` cell.
+        media: The resolved media block for the same message.
+
+    Returns:
+        The typed body when nothing was recovered, otherwise the two joined by
+        a blank line - the same separator the dataset itself uses between
+        paragraphs, so sentence counting stays honest.
+    """
+    if not media.has_derived_text:
+        return message_text
+    typed = safe_text(message_text, default="") or ""
+    if not typed:
+        return media.derived_text
+    return f"{typed}\n\n{media.derived_text}"

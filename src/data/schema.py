@@ -65,6 +65,15 @@ class TableSpec:
     columns: tuple[Column, ...]
     foreign_keys: tuple[ForeignKey, ...] = ()
     required: bool = True
+    #: Whether the run genuinely cannot proceed unless this table has rows.
+    #:
+    #: Distinct from :attr:`required`, which is about the *file* existing. Only
+    #: ``messages`` and ``users`` are essential: without them there is nothing
+    #: to predict and nobody to predict for. Every other table enriches the
+    #: decision, and an evaluation set that ships without history - a cold-start
+    #: scenario is a perfectly reasonable thing to test - must still produce a
+    #: full submission rather than none at all.
+    requires_rows: bool = False
     description: str = ""
     label: str = ""
 
@@ -139,6 +148,7 @@ USERS = TableSpec(
     name="users",
     filename="users.csv",
     primary_key=("user_id",),
+    requires_rows=True,
     columns=(
         Column("user_id"),
         Column("do_not_disturb_window"),
@@ -239,6 +249,7 @@ MESSAGES = TableSpec(
     name="messages",
     filename="messages.csv",
     primary_key=("message_id",),
+    requires_rows=True,
     columns=_conversation_columns(),
     foreign_keys=_conversation_foreign_keys(),
     description="Incoming messages awaiting a routing decision.",
@@ -282,6 +293,11 @@ IMAGES = TableSpec(
     primary_key=("image_id",),
     columns=(Column("image_id"), Column("file_path")),
     description="Image media registry. Paths are relative to the dataset directory.",
+    # Optional: the registry only resolves an attachment to a file on disk.
+    # Without it, media messages still carry media_type and media_id and are
+    # routed on those, so an absent registry degrades the run rather than
+    # ending it.
+    required=False,
 )
 
 VOICE_NOTES = TableSpec(
@@ -290,6 +306,8 @@ VOICE_NOTES = TableSpec(
     primary_key=("voice_note_id",),
     columns=(Column("voice_note_id"), Column("file_path")),
     description="Voice-note media registry. Paths are relative to the dataset directory.",
+    #: Optional for the same reason as :data:`IMAGES`.
+    required=False,
 )
 
 DAILY_NOTIFICATION_SUMMARY = TableSpec(

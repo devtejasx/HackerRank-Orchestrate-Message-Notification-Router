@@ -15,14 +15,22 @@ table and logs the record counts.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 import pandas as pd
 
 from src import config
 from src.data import schema
-from src.data.models import MODEL_BY_TABLE, Record
+from src.data.models import (
+    MODEL_BY_TABLE,
+    Record,
+    RecordCoercionError,
+    coerce_row,
+)
 from src.data.schema import ColumnType
 from src.utils.helpers import safe_bool
 
@@ -67,6 +75,8 @@ class DataLoader:
         self._raw_frames: dict[str, pd.DataFrame] = {}
         self._typed_frames: dict[str, pd.DataFrame] = {}
         self._records: dict[str, tuple[Record, ...]] = {}
+        self._repairs: dict[str, dict[str, int]] = {}
+        self._dropped: dict[str, int] = {}
 
     # ------------------------------------------------------------------ #
     # Introspection
@@ -198,24 +208,90 @@ class DataLoader:
         Built from the raw string frame so coercion follows exactly the same
         rules as :mod:`src.utils.helpers` everywhere else.
 
+        Loading never raises on a bad cell. Unreadable non-key values are
+        repaired to the neutral value for their type and counted in
+        :attr:`repairs`; rows with an unusable primary key are dropped and
+        counted in :attr:`dropped_rows`. Run
+        :func:`src.data.validation.validate_dataset` for the full report on
+        what was wrong, and pass ``strict`` there to make it blocking.
+
         Args:
             table: Logical table name.
-
-        Raises:
-            RecordCoercionError: If a row lacks a non-nullable field. Run
-                :func:`src.data.validation.validate_dataset` first for a full
-                report rather than a single failure.
         """
         cached = self._records.get(table)
         if cached is not None:
             return cached
 
-        model = MODEL_BY_TABLE[table]
-        rows = self.raw_frame(table).to_dict(orient="records")
-        built = tuple(model.from_row(row) for row in rows)
-
+        built = self._build_records(table)
         self._records[table] = built
         return built
+
+    def _build_records(self, table: str) -> tuple[Record, ...]:
+        """Coerce every row of ``table``, repairing what can be repaired.
+
+        Two kinds of row are dropped, both because they cannot be indexed: one
+        whose primary key is unusable, and one whose primary key repeats a row
+        already seen. Every other defect is repaired to the neutral value for
+        the field's type. Both are counted and reported once per table, so one
+        malformed cell never costs the run a prediction and a degraded load is
+        never a silent one.
+        """
+        model = MODEL_BY_TABLE[table]
+        spec = schema.get_spec(table)
+        rows = self.raw_frame(table).to_dict(orient="records")
+
+        built: list[Record] = []
+        repaired_fields: Counter[str] = Counter()
+        seen: set[tuple[object, ...]] = set()
+        dropped = 0
+        for row in rows:
+            try:
+                record, repaired = coerce_row(model, row, required=spec.primary_key)
+            except RecordCoercionError as exc:
+                dropped += 1
+                _LOGGER.warning("Dropped an unidentifiable %s row: %s", table, exc)
+                continue
+
+            key = tuple(getattr(record, column) for column in spec.primary_key)
+            if key in seen:
+                # Keeping both would break every one-to-one index and put two
+                # rows in output.csv for one message id. First occurrence wins,
+                # which at least makes the choice deterministic.
+                dropped += 1
+                _LOGGER.warning("Dropped a duplicate %s row: %s", table, key)
+                continue
+            seen.add(key)
+
+            repaired_fields.update(repaired)
+            built.append(record)
+
+        if repaired_fields:
+            self._repairs[table] = dict(repaired_fields)
+            _LOGGER.warning(
+                "Repaired unreadable cells in %s: %s",
+                spec.filename,
+                ", ".join(
+                    f"{name} x{count}" for name, count in sorted(repaired_fields.items())
+                ),
+            )
+        if dropped:
+            self._dropped[table] = dropped
+
+        return tuple(built)
+
+    @property
+    def repairs(self) -> Mapping[str, Mapping[str, int]]:
+        """Per-table counts of cells repaired during record construction.
+
+        Empty when every row loaded cleanly. Surfaced so a run can report that
+        it degraded rather than failing silently.
+        """
+        return MappingProxyType(self._repairs)
+
+    @property
+    def dropped_rows(self) -> Mapping[str, int]:
+        """Per-table counts of rows dropped as unidentifiable or duplicated."""
+        return MappingProxyType(self._dropped)
 
     def summary(self) -> dict[str, int]:
         """Return row counts for every table already loaded."""

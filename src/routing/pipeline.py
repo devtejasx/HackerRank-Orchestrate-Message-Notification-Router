@@ -19,6 +19,7 @@ from typing import Self
 from src import config
 from src.data.models import MessageRecord
 from src.data.repository import DataRepository
+from src.media.understanding import MediaUnderstanding
 from src.pipeline import MessageAnalysis, MessagePipeline
 from src.routing.evidence import EvidenceEngine
 from src.routing.models import DecisionContext, RoutingResult
@@ -51,9 +52,12 @@ class RoutingPipeline:
         repo: DataRepository,
         analysis_pipeline: MessagePipeline | None = None,
         router: Router | None = None,
+        understanding: MediaUnderstanding | None = None,
     ) -> None:
         self._repo = repo
-        self._analysis = analysis_pipeline or MessagePipeline(repo)
+        self._analysis = analysis_pipeline or MessagePipeline(
+            repo, understanding=understanding
+        )
         if self._analysis.engine is None:
             raise ValueError(
                 "RoutingPipeline needs routing signals; construct the analysis "
@@ -68,17 +72,25 @@ class RoutingPipeline:
         )
 
     @classmethod
-    def load(cls, dataset_dir: Path | None = None) -> Self:
+    def load(
+        cls,
+        dataset_dir: Path | None = None,
+        understanding: MediaUnderstanding | None = None,
+    ) -> Self:
         """Load the dataset and build a ready-to-use routing pipeline.
 
         Args:
             dataset_dir: Dataset directory. Defaults to
                 :data:`src.config.DATASET_DIR`.
+            understanding: OCR / speech-to-text provider. This argument is the
+                whole multimodal integration surface: pass one and recovered
+                text flows through classification, routing and evidence with no
+                other change. See :mod:`src.media`.
 
         Returns:
             A pipeline over a loaded, validated and indexed repository.
         """
-        return cls(DataRepository.load(dataset_dir))
+        return cls(DataRepository.load(dataset_dir), understanding=understanding)
 
     @property
     def repository(self) -> DataRepository:

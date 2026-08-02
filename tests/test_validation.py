@@ -47,14 +47,24 @@ class TestCleanDataset:
 class TestStructuralErrors:
     """Structural damage is an ERROR and blocks the load."""
 
-    def test_duplicate_primary_key(self, dataset_copy: Path, mutate_csv: Mutator) -> None:
+    def test_duplicate_primary_key_warns_and_keeps_the_first_row(
+        self, dataset_copy: Path, mutate_csv: Mutator
+    ) -> None:
+        # Reported, but not blocking: failing the load would turn a two-row
+        # defect into a zero-row submission. The loader keeps the first
+        # occurrence so the indexes stay one-to-one.
         mutate_csv(
             dataset_copy / "users.csv",
             lambda rows, fields: ([*rows, dict(rows[0])], fields),
         )
         report = _validate(dataset_copy)
         assert "duplicate_primary_key" in _checks(report)
-        assert report.is_valid is False
+        assert report.is_valid is True
+
+        loader = DataLoader(dataset_copy)
+        users = loader.records("users")
+        assert len({user.user_id for user in users}) == len(users)
+        assert loader.dropped_rows["users"] == 1
 
     def test_blank_primary_key(self, dataset_copy: Path, mutate_csv: Mutator) -> None:
         def blank(rows, fields):
@@ -90,10 +100,20 @@ class TestStructuralErrors:
         assert member_checks == {"missing_columns"}
 
     def test_empty_required_table(self, dataset_copy: Path, mutate_csv: Mutator) -> None:
-        mutate_csv(dataset_copy / "images.csv", lambda _rows, fields: ([], fields))
+        mutate_csv(dataset_copy / "users.csv", lambda _rows, fields: ([], fields))
         report = _validate(dataset_copy)
         assert "empty_table" in _checks(report)
         assert report.is_valid is False
+
+    def test_empty_optional_table_is_only_a_warning(
+        self, dataset_copy: Path, mutate_csv: Mutator
+    ) -> None:
+        # The media registries only map an attachment to a file on disk, so
+        # losing one degrades the run rather than ending it.
+        mutate_csv(dataset_copy / "images.csv", lambda _rows, fields: ([], fields))
+        report = _validate(dataset_copy)
+        assert "empty_table" in _checks(report)
+        assert report.is_valid is True
 
     def test_missing_required_file(self, dataset_copy: Path) -> None:
         (dataset_copy / "users.csv").unlink()
@@ -234,10 +254,11 @@ class TestReportBehaviour:
     """Raising, strict mode and report shape."""
 
     def test_raises_on_structural_error(self, dataset_copy: Path, mutate_csv: Mutator) -> None:
-        mutate_csv(
-            dataset_copy / "users.csv",
-            lambda rows, fields: ([*rows, dict(rows[0])], fields),
-        )
+        def blank_key(rows, fields):
+            rows[0]["user_id"] = ""
+            return rows, fields
+
+        mutate_csv(dataset_copy / "users.csv", blank_key)
         with pytest.raises(DatasetValidationError) as excinfo:
             validate_dataset(DataLoader(dataset_copy))
         assert excinfo.value.report.errors
@@ -282,8 +303,9 @@ class TestReportBehaviour:
         assert "carrier_pigeon" in str(issue)
 
     def test_tables_with_errors(self, dataset_copy: Path, mutate_csv: Mutator) -> None:
-        mutate_csv(
-            dataset_copy / "users.csv",
-            lambda rows, fields: ([*rows, dict(rows[0])], fields),
-        )
+        def blank_key(rows, fields):
+            rows[0]["user_id"] = ""
+            return rows, fields
+
+        mutate_csv(dataset_copy / "users.csv", blank_key)
         assert _validate(dataset_copy).tables_with_errors() == frozenset({"users"})

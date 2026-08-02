@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
-from typing import Any
+from typing import Any, ClassVar
 
 from src.classifier.enums import KeywordCategory
 
@@ -29,6 +29,7 @@ __all__ = [
     "ContextFeatures",
     "HistoricalFeatures",
     "KeywordFeatures",
+    "MediaFeatures",
     "MessageFeatures",
     "TextFeatures",
 ]
@@ -308,6 +309,69 @@ class KeywordFeatures:
 
 
 @dataclass(frozen=True, slots=True)
+class MediaFeatures:
+    """What is attached to the message, and what could be read out of it.
+
+    Present on every message, empty on most. It exists so multimodal handling
+    has a home in the feature record *before* there is a model to fill it: with
+    no OCR or speech-to-text installed, :attr:`derived_text` is empty and
+    :attr:`derived_from` is ``"none"``, which is a fact worth recording rather
+    than an absence to be inferred.
+
+    :attr:`is_registered` and :attr:`file_exists` are kept apart on purpose. An
+    id missing from the registry is a dataset defect; a registry entry pointing
+    at a file that is not on disk is a packaging defect. They call for different
+    fixes and the router should be able to report which one it hit.
+
+    Attributes:
+        media_type: Raw ``media_type`` cell, preserved even when unrecognised.
+        media_id: Raw ``media_id`` cell.
+        is_registered: Whether ``media_id`` was found in a media registry.
+        file_exists: Whether the registered path is a readable file.
+        derived_text: Transcript or caption recovered from the attachment.
+            Empty until a provider is installed.
+        derived_from: Name of the provider that produced ``derived_text``.
+        derived_confidence: That provider's confidence, in ``[0, 1]``.
+        derived_language: BCP-47 tag when the provider reports one.
+    """
+
+    media_type: str | None = None
+    media_id: str | None = None
+    is_registered: bool = False
+    file_exists: bool = False
+    derived_text: str = ""
+    derived_from: str = "none"
+    derived_confidence: float = 0.0
+    derived_language: str | None = None
+
+    #: The "no attachment" value. Shared, so text-only messages allocate nothing.
+    NONE: ClassVar[MediaFeatures]
+
+    @property
+    def has_attachment(self) -> bool:
+        """Whether the message carries an attachment at all."""
+        return self.media_id is not None
+
+    @property
+    def has_derived_text(self) -> bool:
+        """Whether a provider recovered usable text from the attachment."""
+        return bool(self.derived_text.strip())
+
+    @property
+    def is_unreadable(self) -> bool:
+        """Whether an attachment is present but could not be located on disk.
+
+        True for both dataset and packaging defects. Routing treats such a
+        message as media-with-no-content, which is also how it treats an
+        attachment no installed model can read.
+        """
+        return self.has_attachment and not self.file_exists
+
+
+MediaFeatures.NONE = MediaFeatures()
+
+
+@dataclass(frozen=True, slots=True)
 class MessageFeatures:
     """The complete Phase 2 feature record for one incoming message.
 
@@ -326,6 +390,9 @@ class MessageFeatures:
         context: Conversation and sender features.
         history: Recipient's historical behaviour.
         keywords: Lexical matches.
+        media: Attachment provenance and any text recovered from it. Defaults
+            to :data:`MediaFeatures.NONE`, so every construction predating the
+            multimodal seam keeps working unchanged.
     """
 
     message_id: str
@@ -338,6 +405,7 @@ class MessageFeatures:
     context: ContextFeatures
     history: HistoricalFeatures
     keywords: KeywordFeatures
+    media: "MediaFeatures" = field(default_factory=lambda: MediaFeatures.NONE)
 
     # -- Frequently used shortcuts, so callers need not chain attributes -- #
 
@@ -376,6 +444,22 @@ class MessageFeatures:
         """Every matched keyword across every category."""
         return self.keywords.all_keywords
 
+    @property
+    def has_derived_text(self) -> bool:
+        """Whether any of :attr:`text` was recovered from an attachment.
+
+        When true, :attr:`text` and :attr:`keywords` cover the transcript or
+        caption as well as the typed body. Consumers that must weigh recovered
+        text differently from typed text should read this, not guess from
+        :attr:`has_media`.
+        """
+        return self.media.has_derived_text
+
+    @property
+    def has_unreadable_media(self) -> bool:
+        """Whether an attachment is present that could not be read at all."""
+        return self.media.is_unreadable
+
     def to_dict(self) -> dict[str, Any]:
         """Return a flat, JSON-friendly view for logging and debugging.
 
@@ -394,6 +478,7 @@ class MessageFeatures:
             ("text", self.text),
             ("context", self.context),
             ("history", self.history),
+            ("media", self.media),
         ):
             for spec in fields(block):
                 flat[f"{prefix}_{spec.name}"] = getattr(block, spec.name)

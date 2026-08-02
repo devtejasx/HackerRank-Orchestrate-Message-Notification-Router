@@ -13,6 +13,7 @@ faults raise, quality concerns warn.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -21,6 +22,7 @@ from typing import Final
 from src import config
 from src.classifier.enums import MessageType
 from src.data.models import Message
+from src.data.repository import DataRepository
 from src.routing.models import NO_EVIDENCE, RoutingAction, RoutingResult
 
 __all__ = [
@@ -165,13 +167,18 @@ class OutputValidationError(RuntimeError):
 
 
 def validate_results(
-    results: Sequence[RoutingResult], messages: Sequence[Message]
+    results: Sequence[RoutingResult],
+    messages: Sequence[Message],
+    repo: DataRepository | None = None,
 ) -> OutputValidationReport:
     """Check predictions against the output contract.
 
     Args:
         results: The predictions about to be written.
         messages: The input rows they must cover, in dataset order.
+        repo: Loaded repository. When supplied, cited evidence ids are checked
+            against real history rather than only for well-formedness - the
+            difference between "this column parses" and "this column is true".
 
     Returns:
         The report. Nothing is raised here; call
@@ -187,6 +194,8 @@ def validate_results(
                   _check_reasons, _check_evidence):
         check(results, report)
     _check_reason_variety(results, report)
+    if repo is not None:
+        _check_evidence_integrity(results, messages, repo, report)
     return report
 
 
@@ -299,16 +308,25 @@ def _check_message_types(
         )
 
 
+def _is_valid_confidence(value: object) -> bool:
+    """Whether ``value`` is a real number inside ``[0, 1]``.
+
+    ``NaN`` and the infinities are rejected explicitly. They are floats, they
+    survive arithmetic silently, and ``NaN`` passes any range comparison by
+    being false on both sides - so a bounds check alone would let one through
+    into the submission.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value) and 0.0 <= value <= 1.0
+
+
 def _check_confidence(
     results: Sequence[RoutingResult], report: OutputValidationReport
 ) -> None:
     """Confidence must be a real number inside ``[0, 1]``."""
     offenders = tuple(
-        r.message_id
-        for r in results
-        if not isinstance(r.confidence, (int, float))
-        or not 0.0 <= r.confidence <= 1.0
-        or r.confidence != r.confidence  # NaN
+        r.message_id for r in results if not _is_valid_confidence(r.confidence)
     )
     if offenders:
         report.add(
@@ -395,6 +413,74 @@ def _check_evidence(
                 examples=tuple(malformed)[: config.MAX_ISSUE_EXAMPLES],
             )
         )
+
+
+def _check_evidence_integrity(
+    results: Sequence[RoutingResult],
+    messages: Sequence[Message],
+    repo: DataRepository,
+    report: OutputValidationReport,
+) -> None:
+    """Check that cited evidence is real, and is the recipient's own.
+
+    Three distinct failures, each scored differently because each means
+    something different:
+
+    * an id that is in no history table is a **fabricated** citation, and
+      invalidates the submission - the column claims a fact that is not in the
+      data;
+    * an id belonging to a *different* recipient is a **privacy leak** and
+      equally invalidating: one user's history must never explain another
+      user's notification;
+    * an id whose recipient cannot be resolved is only a warning, because a
+      dataset with a broken history table is not the router's fault.
+    """
+    fabricated: list[str] = []
+    cross_user: list[str] = []
+    unresolvable: list[str] = []
+
+    recipients = {message.message_id: message.user_id for message in messages}
+    for result in results:
+        expected_user = recipients.get(result.message_id)
+        for evidence_id in result.evidence.message_ids:
+            record = repo.get_history_message(evidence_id)
+            if record is None:
+                fabricated.append(f"{result.message_id}->{evidence_id}")
+            elif expected_user is None:
+                unresolvable.append(f"{result.message_id}->{evidence_id}")
+            elif record.user_id != expected_user:
+                cross_user.append(f"{result.message_id}->{evidence_id}")
+
+    for severity, check, offenders, description in (
+        (
+            OutputSeverity.ERROR,
+            "unknown_evidence_id",
+            fabricated,
+            "cited evidence id(s) do not exist in message_history",
+        ),
+        (
+            OutputSeverity.ERROR,
+            "cross_user_evidence",
+            cross_user,
+            "cited evidence id(s) belong to a different recipient",
+        ),
+        (
+            OutputSeverity.WARNING,
+            "unresolvable_evidence_recipient",
+            unresolvable,
+            "cited evidence could not be checked against a known recipient",
+        ),
+    ):
+        if offenders:
+            report.add(
+                OutputIssue(
+                    severity,
+                    check,
+                    f"{len(offenders)} {description}",
+                    count=len(offenders),
+                    examples=tuple(offenders)[: config.MAX_ISSUE_EXAMPLES],
+                )
+            )
 
 
 def _check_reason_variety(

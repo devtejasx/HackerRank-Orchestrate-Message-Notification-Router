@@ -197,11 +197,48 @@ def print_analysis(analysis: MessageAnalysis, repo: DataRepository) -> None:
         field("body", f"(no text - {features.media_type or 'none'} attachment)")
 
     _print_feature_block(analysis)
+    _print_media_block(analysis)
     _print_keyword_block(analysis)
     _print_classification_block(result)
 
     if analysis.routing is not None:
         print_routing_signals(analysis.routing)
+
+
+def _print_media_block(analysis: MessageAnalysis) -> None:
+    """Print what was attached, and what could be read out of it.
+
+    Skipped entirely for text-only messages. For the rest it states plainly
+    whether the content was recovered or the decision was made blind, which is
+    the thing an inspector most needs to know about a voice note.
+    """
+    media = analysis.features.media
+    if not media.has_attachment:
+        return
+
+    print("\n  Media")
+    field("  attachment", f"{media.media_type or 'unknown type'} {media.media_id}")
+    if not media.is_registered:
+        field("  status", "not in the media registry")
+    elif not media.file_exists:
+        field("  status", "registered, but the file is missing from disk")
+    else:
+        field("  status", "located on disk")
+
+    if media.has_derived_text:
+        field(
+            "  recovered",
+            f"{truncate(media.derived_text, _BODY_PREVIEW)}",
+        )
+        field(
+            "  provider",
+            f"{media.derived_from} (confidence {media.derived_confidence:.2f})",
+        )
+    else:
+        field(
+            "  recovered",
+            "nothing - no OCR or speech-to-text provider installed",
+        )
 
 
 def _print_feature_block(analysis: MessageAnalysis) -> None:

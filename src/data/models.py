@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import datetime as dt
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from functools import cache
 from typing import Any, Self, Union, get_args, get_origin, get_type_hints
 
+from src import config
 from src.utils.helpers import (
     parse_date,
     parse_dnd_window,
@@ -29,6 +30,7 @@ from src.utils.helpers import (
 
 __all__ = [
     "RecordCoercionError",
+    "coerce_row",
     "Record",
     "User",
     "Group",
@@ -67,6 +69,22 @@ _COERCERS: Mapping[Any, Callable[[Any], Any]] = {
     dt.date: parse_date,
 }
 
+#: Stand-in per declared field type, used only by :func:`coerce_row` when a
+#: non-nullable cell is blank or unreadable.
+#:
+#: Every value is the neutral element of its type: an unreadable count reads as
+#: zero rather than as a large number, an unreadable flag reads as "not set",
+#: and an unreadable string reads as empty. Repair therefore never invents a
+#: signal - it only refuses to let one bad cell take down the run.
+_FALLBACKS: Mapping[Any, Any] = {
+    str: "",
+    int: 0,
+    float: 0.0,
+    bool: False,
+    dt.datetime: config.FALLBACK_TIMESTAMP,
+    dt.date: config.FALLBACK_DATE,
+}
+
 
 def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:
     """Split ``T | None`` into ``(T, True)``; leave plain ``T`` as ``(T, False)``."""
@@ -78,14 +96,14 @@ def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:
 
 
 @cache
-def _field_plan(cls: type) -> tuple[tuple[str, Callable[[Any], Any], bool], ...]:
-    """Return ``(field_name, coercer, is_optional)`` for every field of ``cls``.
+def _field_plan(cls: type) -> tuple[tuple[str, Callable[[Any], Any], bool, Any], ...]:
+    """Return ``(field_name, coercer, is_optional, base_type)`` for ``cls``.
 
     Cached because the annotation resolution is identical for every row of a
     given table and would otherwise run hundreds of times per load.
     """
     hints = get_type_hints(cls)
-    plan: list[tuple[str, Callable[[Any], Any], bool]] = []
+    plan: list[tuple[str, Callable[[Any], Any], bool, Any]] = []
     for spec in fields(cls):
         base_type, optional = _unwrap_optional(hints[spec.name])
         coercer = _COERCERS.get(base_type)
@@ -93,8 +111,55 @@ def _field_plan(cls: type) -> tuple[tuple[str, Callable[[Any], Any], bool], ...]
             raise TypeError(
                 f"{cls.__name__}.{spec.name}: no coercer for {base_type!r}"
             )
-        plan.append((spec.name, coercer, optional))
+        plan.append((spec.name, coercer, optional, base_type))
     return tuple(plan)
+
+
+def coerce_row(
+    model: type[Record],
+    row: Mapping[str, Any],
+    *,
+    required: Sequence[str] = (),
+) -> tuple[Record, tuple[str, ...]]:
+    """Build a record from ``row``, repairing unreadable cells instead of failing.
+
+    The strict path (:meth:`Record.from_row`) rejects a row the moment a
+    non-nullable cell is blank. That is the right behaviour for a caller
+    constructing one record deliberately, and the wrong behaviour for a bulk
+    load: the submission contract requires one prediction per message, so a
+    single malformed cell anywhere in the dataset must not abort the run.
+
+    Fields named in ``required`` - in practice the table's primary key - are
+    still strict, because a record with no identity cannot be indexed, joined
+    or reported on. Everything else falls back to the neutral value for its
+    type and is named in the returned tuple so the caller can log it.
+
+    Args:
+        model: The record class to build.
+        row: Mapping of column name to raw cell value.
+        required: Field names that must be present and coercible.
+
+    Returns:
+        ``(record, repaired_field_names)``. The second element is empty when
+        the row was clean.
+
+    Raises:
+        RecordCoercionError: If a field named in ``required`` is unusable.
+    """
+    values: dict[str, Any] = {}
+    repaired: list[str] = []
+    for name, coerce, optional, base_type in _field_plan(model):
+        coerced = coerce(row.get(name))
+        if coerced is None and not optional:
+            if name in required:
+                raise RecordCoercionError(
+                    f"{model.__name__}.{name} identifies the row but got "
+                    f"{row.get(name)!r}"
+                )
+            coerced = _FALLBACKS[base_type]
+            repaired.append(name)
+        values[name] = coerced
+    return model(**values), tuple(repaired)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +186,7 @@ class Record:
                 coerced to its declared type.
         """
         values: dict[str, Any] = {}
-        for name, coerce, optional in _field_plan(cls):
+        for name, coerce, optional, _ in _field_plan(cls):
             coerced = coerce(row.get(name))
             if coerced is None and not optional:
                 raise RecordCoercionError(

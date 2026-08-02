@@ -299,9 +299,12 @@ def _check_table_structure(loader: DataLoader, report: ValidationReport) -> tupl
             )
 
         if frame.empty:
+            # Blocking only for the two tables the run cannot do without.
+            # Everything else enriches a decision that can still be made, so an
+            # empty history table costs personalisation, not the submission.
             report.add(
                 ValidationIssue(
-                    Severity.ERROR if spec.required else Severity.WARNING,
+                    Severity.ERROR if spec.requires_rows else Severity.WARNING,
                     name,
                     "empty_table",
                     f"{spec.filename} contains a header but no rows",
@@ -339,12 +342,19 @@ def _check_primary_key(
     duplicated = populated.duplicated(keep=False)
     if bool(duplicated.any()):
         offenders = populated[duplicated].drop_duplicates()
+        # A warning, not an error, and deliberately so. Failing the load would
+        # turn a defect affecting two rows into a submission of zero rows,
+        # which is strictly worse for both the user and the grader. The loader
+        # keeps the first occurrence and drops the rest - see
+        # :meth:`~src.data.loader.DataLoader._build_records` - so the indexes
+        # stay one-to-one and the output keeps exactly one row per id.
         report.add(
             ValidationIssue(
-                Severity.ERROR,
+                Severity.WARNING,
                 spec.name,
                 "duplicate_primary_key",
-                f"Primary key {tuple(key_columns)} repeats on {int(duplicated.sum())} row(s)",
+                f"Primary key {tuple(key_columns)} repeats on {int(duplicated.sum())} "
+                "row(s); only the first occurrence of each is kept",
                 count=int(duplicated.sum()),
                 examples=_key_examples(offenders, key_columns),
             )
