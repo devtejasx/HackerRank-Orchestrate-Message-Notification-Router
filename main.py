@@ -30,6 +30,8 @@ from src.data.models import MessageRecord
 from src.data.repository import DataRepository
 from src.personalization.signal_models import RoutingSignal, RoutingSignals
 from src.pipeline import MessageAnalysis, MessagePipeline
+from src.routing.models import RoutingResult
+from src.routing.pipeline import RoutingPipeline
 from src.utils.helpers import truncate
 
 _LOGGER = config.get_logger("main")
@@ -295,6 +297,44 @@ def print_analysis(analysis: MessageAnalysis, repo: DataRepository) -> None:
         print_routing_signals(analysis.routing)
 
 
+def print_routing_decision(result: RoutingResult) -> None:
+    """Print the Phase 4 decision, its evidence, reason and confidence."""
+    decision = result.decision
+    print("\n  Routing decision (Phase 4)")
+
+    if decision is not None:
+        print(f"\n    {'rule':<34}{'argues for':>12}{'weight':>9}")
+        print(f"    {'-' * 55}")
+        for outcome in sorted(decision.outcomes, key=lambda o: -o.weight):
+            flag = "  <-- override" if outcome.override else ""
+            print(
+                f"    {outcome.rule:<34}{outcome.action.value:>12}"
+                f"{outcome.weight:>9.2f}{flag}"
+            )
+        totals = ", ".join(
+            f"{action.value}={score:.2f}"
+            for action, score in sorted(decision.scores.items(), key=lambda i: -i[1])
+        )
+        _field("  totals", totals)
+        _field(
+            "  runner-up",
+            f"{decision.runner_up.value if decision.runner_up else '-'} "
+            f"(margin {decision.margin:.2f})",
+        )
+
+    print()
+    _field("  ACTION", result.action.value.upper())
+    _field("  confidence", f"{result.confidence:.2f}")
+    _field("  evidence", result.evidence_message_ids)
+    if result.evidence.rationale:
+        _field("  evidence basis", result.evidence.rationale)
+    _field("  reason", result.reason.text)
+
+    print("\n  Submission row")
+    for column, value in result.to_output_row().items():
+        _field(f"  {column}", value)
+
+
 def print_routing_signals(signals: RoutingSignals) -> None:
     """Print every routing signal with its score, confidence and direction.
 
@@ -501,6 +541,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip Phase 3 routing signals and show Phase 2 output only.",
     )
+    parser.add_argument(
+        "--no-route",
+        action="store_true",
+        help="Skip the Phase 4 routing decision and stop after routing signals.",
+    )
 
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
@@ -546,29 +591,83 @@ def main(argv: list[str] | None = None) -> int:
         print("  Phase 1 data layer is ready. No exceptions raised.")
         return 0
 
+    route = not (args.no_personalize or args.no_route)
     pipeline = MessagePipeline(repo, personalize=not args.no_personalize)
+    router = RoutingPipeline(repo, analysis_pipeline=pipeline) if route else None
+
     selected = _select_messages(repo, args)
     analyses = pipeline.analyse_many(selected)
 
-    _heading(
-        "PHASE 2 - FEATURES AND CLASSIFICATION"
-        if args.no_personalize
-        else "PHASE 2 + 3 - FEATURES, CLASSIFICATION AND ROUTING SIGNALS"
-    )
-    for analysis in analyses if len(analyses) <= _DEFAULT_SAMPLE_SIZE else analyses[:1]:
+    _heading(_analysis_heading(args))
+    detailed = analyses if len(analyses) <= _DEFAULT_SAMPLE_SIZE else analyses[:1]
+    results: list[RoutingResult] = []
+
+    for analysis in detailed:
         print_analysis(analysis, repo)
+        if router is not None:
+            result = router.route_analysis(analysis)
+            results.append(result)
+            print_routing_decision(result)
+
+    if router is not None and len(analyses) > len(detailed):
+        results = list(router.route_many(selected))
 
     if len(analyses) > 1:
         print_analysis_summary(analyses)
+        if results:
+            print_routing_summary(results)
 
     _heading("RESULT")
-    phases = "Phases 1 + 2" if args.no_personalize else "Phases 1 + 2 + 3"
-    print(f"  {phases} complete. {len(analyses)} message(s) analysed, no exceptions raised.")
-    print(
-        "  No routing decision was made: notify / digest / mute and output.csv "
-        "belong to Phase 4."
-    )
+    phases = "Phases 1 + 2 + 3 + 4" if route else _partial_phase_label(args)
+    print(f"  {phases} complete. {len(analyses)} message(s) processed, no exceptions raised.")
+    if route:
+        print("  Every message has an action, a reason, a confidence and its evidence.")
+        print("  output.csv is not written here: exporting is Phase 5.")
     return 0
+
+
+def _analysis_heading(args: argparse.Namespace) -> str:
+    """Return the heading matching the phases actually being run."""
+    if args.no_personalize:
+        return "PHASE 2 - FEATURES AND CLASSIFICATION"
+    if args.no_route:
+        return "PHASE 2 + 3 - FEATURES, CLASSIFICATION AND ROUTING SIGNALS"
+    return "PHASES 2-4 - FEATURES, CLASSIFICATION, SIGNALS AND ROUTING"
+
+
+def _partial_phase_label(args: argparse.Namespace) -> str:
+    """Return the phase label when routing is switched off."""
+    return "Phases 1 + 2" if args.no_personalize else "Phases 1 + 2 + 3"
+
+
+def print_routing_summary(results: Sequence[RoutingResult]) -> None:
+    """Print the action distribution and decision quality across many messages."""
+    _heading("PHASE 4 - ROUTING SUMMARY")
+
+    actions = Counter(result.action.value for result in results)
+    width = max((len(name) for name in actions), default=0)
+    print(f"  {len(results)} message(s) routed\n")
+    for name, count in actions.most_common():
+        print(f"  {name:<{width}}  {count:>3}  {'#' * count}")
+
+    confidences = [result.confidence for result in results]
+    with_evidence = sum(1 for result in results if result.evidence.has_evidence)
+    overridden = sum(
+        1 for result in results if result.decision and result.decision.overridden
+    )
+    print(
+        f"\n  confidence  min={min(confidences):.2f}  "
+        f"mean={sum(confidences) / len(confidences):.2f}  max={max(confidences):.2f}"
+    )
+    print(f"  with supporting evidence: {with_evidence}/{len(results)}")
+    print(f"  safety overrides applied: {overridden}")
+
+    by_type = Counter(
+        (result.message_type, result.action.value) for result in results
+    )
+    print("\n  message_type -> action")
+    for (message_type, action), count in sorted(by_type.items()):
+        print(f"    {message_type:<18}{action:<9}{count:>4}")
 
 
 if __name__ == "__main__":
