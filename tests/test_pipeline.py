@@ -8,25 +8,14 @@ from pathlib import Path
 import pytest
 
 from src.classifier.enums import MessageType
-from src.data.models import Message, SampleMessage
+from src.data.models import Message
 from src.data.repository import DataRepository
+from src.evaluation import as_message
 from src.pipeline import MessageAnalysis, MessagePipeline
-
-#: Fields shared by SampleMessage and Message, used to replay labelled rows.
-_MESSAGE_FIELDS = (
-    "message_id", "user_id", "conversation_type", "group_id", "business_id",
-    "sender_user_id", "created_at", "message_text", "media_type", "media_id",
-    "forwarded_count",
-)
 
 #: Agreement with the labelled examples that the classifier must not fall below.
 #: The tuned figure is higher; this is a regression floor, not a target.
 MIN_SAMPLE_AGREEMENT = 0.80
-
-
-def _as_message(sample: SampleMessage) -> Message:
-    """Reinterpret a labelled sample row as an incoming message."""
-    return Message(**{field: getattr(sample, field) for field in _MESSAGE_FIELDS})
 
 
 class TestPipeline:
@@ -86,7 +75,7 @@ def outcomes(
     """Return ``(message_id, expected, predicted)`` for every labelled row."""
     results = []
     for sample in repo.loader.records("sample_messages"):
-        analysis = pipeline.analyse(_as_message(sample))
+        analysis = pipeline.analyse(as_message(sample))
         results.append(
             (sample.message_id, sample.message_type,
              analysis.classification.message_type.value)
@@ -141,7 +130,7 @@ class TestAgreementWithLabelledExamples:
             None,
         )
         assert sample is not None, "expected an embedded-instruction row"
-        analysis = pipeline.analyse(_as_message(sample))
+        analysis = pipeline.analyse(as_message(sample))
         assert analysis.classification.message_type is MessageType.SCAM
 
 

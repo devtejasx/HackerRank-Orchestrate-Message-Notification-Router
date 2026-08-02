@@ -15,6 +15,7 @@ import pytest
 from src.classifier.enums import MessageType
 from src.data.models import Message
 from src.data.repository import DataRepository
+from src.evaluation import as_message
 from src.routing.confidence import ConfidenceCalibrator
 from src.routing.decision_engine import DecisionEngine
 from src.routing.evidence import EvidenceEngine
@@ -579,13 +580,6 @@ class TestPipeline:
         assert "scores" in payload["decision_breakdown"]
 
 
-#: Fields shared by SampleMessage and Message, for replaying labelled rows.
-_SAMPLE_FIELDS = (
-    "message_id", "user_id", "conversation_type", "group_id", "business_id",
-    "sender_user_id", "created_at", "message_text", "media_type", "media_id",
-    "forwarded_count",
-)
-
 #: Regression floor on agreement with the labelled actions. The tuned figure is
 #: higher; this guards against a change silently undoing the routing work.
 MIN_ACTION_AGREEMENT = 0.85
@@ -598,7 +592,7 @@ def labelled_outcomes(
     """Return ``(message_id, expected_action, routed_action)`` per labelled row."""
     results = []
     for sample in routing_pipeline.repository.loader.records("sample_messages"):
-        message = Message(**{f: getattr(sample, f) for f in _SAMPLE_FIELDS})
+        message = as_message(sample)
         routed = routing_pipeline.route(message)
         results.append((sample.message_id, sample.action, routed.action.value))
     return tuple(results)
@@ -623,5 +617,5 @@ class TestAgreementWithLabelledActions:
         for sample in routing_pipeline.repository.loader.records("sample_messages"):
             if sample.message_type != "scam":
                 continue
-            message = Message(**{f: getattr(sample, f) for f in _SAMPLE_FIELDS})
+            message = as_message(sample)
             assert routing_pipeline.route(message).action is RoutingAction.MUTE
