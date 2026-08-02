@@ -67,11 +67,15 @@ class Thresholds:
     opted_out_promotion: float = 1.80
     dismissed_promotion: float = 1.20
     trusted_promotion: float = 1.00
+    unsolicited_promotion: float = 1.20
 
     # -- conversation state ---------------------------------------------- #
     muted_group: float = 1.50
     heavy_forwarding: float = 1.40
     direct_mention: float = 1.20
+    #: Weighted to outrank the mild urgency an event category implies, without
+    #: being able to hold back something genuinely urgent.
+    deferral_language: float = 1.60
 
     # -- attention economics ---------------------------------------------- #
     fatigue_dampener: float = 0.90
@@ -174,6 +178,11 @@ def stranger_requesting_money(
     The combination is what matters. A payment request from a known business
     is routine; the same words from a stranger with no history are the classic
     advance-fee setup, and the brief calls this out explicitly.
+
+    A *verified* business is never a stranger in this sense, even one the user
+    has not dealt with before. Without that exclusion a bank's own fraud
+    advisory - which necessarily mentions payment details in order to warn
+    about them - is suppressed as though it were the fraud.
     """
     features = context.features
     wants_money = (
@@ -182,6 +191,8 @@ def stranger_requesting_money(
         or features.text.contains_currency
     )
     if not wants_money:
+        return
+    if features.context.business_verified:
         return
 
     history = context.features.history
@@ -207,8 +218,16 @@ def stranger_requesting_money(
 def urgent_trusted_sender(
     context: DecisionContext, thresholds: Thresholds
 ) -> Iterable[RuleOutcome]:
-    """Let genuinely urgent messages through when the sender has standing."""
+    """Let genuinely urgent messages through when the sender has standing.
+
+    Suppressed when the sender explicitly said the message can wait. Category
+    and authority together imply some urgency, but an explicit "no need to
+    reply" is the sender stating their own intent, and it outranks the
+    inference.
+    """
     if context.signals.urgency_modifier.score <= thresholds.strong_signal:
+        return
+    if _states_no_urgency(context):
         return
     trust = context.signals.trust_modifier
     sender = context.signals.sender_priority
@@ -231,12 +250,20 @@ def verified_business_transaction(
 
     An order update or payment confirmation from a verified brand the user
     actually buys from is something they are waiting for.
+
+    The message must reference an *awaited* transaction, not merely belong to
+    a transactional category. A feedback survey and a delivery notification are
+    both ``business_update`` from the same trusted sender, but only one of them
+    is something the user is waiting on.
     """
     if context.classification.message_type not in _TRANSACTIONAL_TYPES:
         return
     if not context.features.context.is_trusted_business:
         return
     if not context.features.history.has_business_relationship:
+        return
+    matched = set(context.features.keywords.words(KeywordCategory.TRANSACTIONAL))
+    if not matched & _AWAITED_TRANSACTION_TOKENS:
         return
     yield RuleOutcome(
         rule="verified_business_transaction",
@@ -374,10 +401,17 @@ def promotion_from_trusted_business(
     """Keep marketing from a trusted, engaged-with brand in the digest.
 
     Worth showing later, never worth interrupting for.
+
+    A recorded relationship is required, not merely a trustworthy-looking
+    sender. Trust alone is satisfied by any verified brand, including ones the
+    user has never dealt with, and rescuing their marketing into the digest is
+    exactly the wrong outcome.
     """
     if context.classification.message_type is not MessageType.PROMOTION:
         return
     if context.features.history.opted_out_of_promotions:
+        return
+    if not context.features.history.has_business_relationship:
         return
     if context.signals.trust_modifier.score < thresholds.strong_trust:
         return
@@ -386,6 +420,29 @@ def promotion_from_trusted_business(
         action=D,
         weight=thresholds.trusted_promotion,
         reason="Promotional content from a business the user engages with.",
+    )
+
+
+def unsolicited_promotion(
+    context: DecisionContext, thresholds: Thresholds
+) -> Iterable[RuleOutcome]:
+    """Mute marketing from a business the user has no relationship with.
+
+    Scoped to business senders. A neighbour advertising a bicycle in a group
+    is also a promotion, but it is not unsolicited bulk marketing and is
+    handled by the ordinary counterparty rules.
+    """
+    if context.classification.message_type is not MessageType.PROMOTION:
+        return
+    if not context.features.context.is_business:
+        return
+    if context.features.history.has_business_relationship:
+        return
+    yield RuleOutcome(
+        rule="unsolicited_promotion",
+        action=M,
+        weight=thresholds.unsolicited_promotion,
+        reason="Marketing from a business the user has no relationship with.",
     )
 
 
@@ -411,13 +468,26 @@ def muted_group(
     if membership is None or not membership.group_muted_by_user:
         return
 
-    urgent = context.signals.urgency_modifier.score >= thresholds.strong_signal
-    if urgent:
+    if context.signals.urgency_modifier.score >= thresholds.strong_signal:
         yield RuleOutcome(
             rule="muted_group",
             action=N,
             weight=thresholds.muted_group * 0.5,
             reason="The group is muted, but this message looks genuinely urgent.",
+        )
+        return
+
+    # Muting plus disengagement is a stronger statement than muting alone. A
+    # user who muted a group and barely reads it is not asking for a digest of
+    # it; voting digest here would actively rescue messages that every other
+    # signal says to suppress.
+    group_standing = context.signals.group_priority
+    if group_standing.score <= thresholds.weak_signal:
+        yield RuleOutcome(
+            rule="muted_group",
+            action=M,
+            weight=thresholds.muted_group,
+            reason="The user muted this group and rarely reads it.",
         )
         return
 
@@ -437,22 +507,25 @@ def heavy_forwarding(
     A high forwarding count means many people have passed this along
     unchanged, which is the signature of a chain message rather than of
     something written for this recipient.
+
+    Both tiers argue for ``mute``, differing only in strength. Voting
+    ``digest`` for the moderate tier would make forwarding *promote* a message
+    that other rules were already suppressing, which inverts what the signal
+    means.
     """
     count = context.features.forwarded_count
     if count >= thresholds.heavy_forward_count:
-        yield RuleOutcome(
-            rule="heavy_forwarding",
-            action=M,
-            weight=thresholds.heavy_forwarding,
-            reason=f"The message has been forwarded {count} times.",
-        )
+        weight = thresholds.heavy_forwarding
     elif count >= thresholds.moderate_forward_count:
-        yield RuleOutcome(
-            rule="heavy_forwarding",
-            action=D,
-            weight=thresholds.heavy_forwarding * 0.6,
-            reason=f"The message has been forwarded {count} times.",
-        )
+        weight = thresholds.heavy_forwarding * 0.6
+    else:
+        return
+    yield RuleOutcome(
+        rule="heavy_forwarding",
+        action=M,
+        weight=weight,
+        reason=f"The message has been forwarded {count} times.",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -515,6 +588,65 @@ _TRANSACTIONAL_TYPES: Final[frozenset[MessageType]] = frozenset(
     {MessageType.BUSINESS_UPDATE, MessageType.PAYMENT, MessageType.EVENT}
 )
 
+#: Transactional keywords describing something the user is *waiting for*, as
+#: opposed to something the business wants from them. A delivery notification
+#: is awaited; a feedback survey is solicitation wearing the same category.
+_AWAITED_TRANSACTION_TOKENS: Final[frozenset[str]] = frozenset(
+    {
+        "order", "delivery", "delivered", "dispatched", "shipped", "tracking",
+        "track your", "booking", "booked", "confirmed", "confirmation",
+        "prescription", "claim status", "ticket", "reservation", "boarding",
+        "check in", "refill", "renewal", "expiry",
+    }
+)
+
+#: Phrases with which a sender explicitly removes time pressure. Their presence
+#: is a direct instruction that the message can wait, which outranks the mild
+#: urgency an ``event`` category otherwise implies.
+_DEFERRAL_PHRASES: Final[tuple[str, ...]] = (
+    "no need to reply",
+    "no need to respond",
+    "whenever you get time",
+    "whenever you can",
+    "when you get time",
+    "at your convenience",
+    "no rush",
+    "no hurry",
+    "no pressure",
+    "not urgent",
+    "nothing urgent",
+    "take your time",
+    "no deadline",
+)
+
+
+def _states_no_urgency(context: DecisionContext) -> bool:
+    """Whether the sender explicitly removed time pressure from the message."""
+    text = context.features.text
+    if text.is_empty:
+        return False
+    return any(phrase in text.normalized_text for phrase in _DEFERRAL_PHRASES)
+
+
+def deferrable_language(
+    context: DecisionContext, thresholds: Thresholds
+) -> Iterable[RuleOutcome]:
+    """Respect a sender who explicitly says the message can wait.
+
+    "Add your name whenever you get time, no need to reply here" is a request
+    to *not* be treated as urgent. Without this, an event announced by a group
+    admin inherits enough implied urgency to interrupt, against the sender's
+    own stated intent.
+    """
+    if not _states_no_urgency(context):
+        return
+    yield RuleOutcome(
+        rule="deferrable_language",
+        action=D,
+        weight=thresholds.deferral_language,
+        reason="The sender explicitly indicated the message is not time-critical.",
+    )
+
 #: Signature every rule implements.
 RoutingRule = Callable[[DecisionContext, Thresholds], Iterable[RuleOutcome]]
 
@@ -531,9 +663,11 @@ DEFAULT_RULES: Final[tuple[RoutingRule, ...]] = (
     counterparty_standing,
     historical_importance,
     direct_mention,
+    deferrable_language,
     promotion_opted_out,
     promotion_previously_dismissed,
     promotion_from_trusted_business,
+    unsolicited_promotion,
     muted_group,
     heavy_forwarding,
     notification_fatigue,

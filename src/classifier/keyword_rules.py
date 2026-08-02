@@ -85,8 +85,11 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         # marketing, so it separates nothing.
         "exclusive", "lowest price", "best price", "new arrival", "launch",
         "membership", "t&c apply", "terms apply",
-        "starting at", "starts at", "per person", "selling",
-        "dm if interested",
+        "per person", "selling", "dm if interested",
+        # Deliberately absent: "starting at" / "starts at". Intended for
+        # pricing ("starting at Rs 999"), but far more common in scheduling
+        # ("lift maintenance starts at 4 PM"), which it was misreading as
+        # marketing. The remaining vocabulary covers pricing adequately.
     ),
     KeywordCategory.EVENT: (
         "meeting", "birthday", "party", "school", "exam", "conference",
