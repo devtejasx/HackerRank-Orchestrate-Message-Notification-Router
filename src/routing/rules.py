@@ -154,9 +154,33 @@ def scam_override(
         rule="scam_override",
         action=M,
         weight=context.classification.confidence * 3.0,
-        reason="The message shows clear scam characteristics and is unsafe to deliver.",
+        reason=_scam_explanation(context),
         override=True,
     )
+
+
+def _scam_explanation(context: DecisionContext) -> str:
+    """Say which attack this is, not merely that it is one.
+
+    Every scam otherwise carries the same sentence, which is accurate and
+    useless: a reader learns nothing about why *this* message was suppressed,
+    and an OTP request, a spoofed brand domain and a QR payment demand are
+    materially different things to be told about.
+
+    The strongest scam signal from Phase 2 supplies the specific clause.
+    :attr:`MessageClassification.signals` exists for exactly this - it is
+    documented as retained for explanation - so the sentence still comes from
+    the evidence that decided, and cannot drift from it.
+    """
+    scam_signals = [
+        signal
+        for signal in context.classification.signals
+        if signal.message_type is MessageType.SCAM
+    ]
+    if not scam_signals:  # pragma: no cover - a scam verdict implies a signal
+        return "The message shows clear scam characteristics and is unsafe to deliver."
+    strongest = max(scam_signals, key=lambda signal: signal.weight)
+    return f"The message is unsafe to deliver - it {strongest.reason}."
 
 
 def risk_suppression(

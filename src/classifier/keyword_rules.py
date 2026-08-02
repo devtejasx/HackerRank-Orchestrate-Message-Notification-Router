@@ -141,8 +141,13 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         "click here",
         # Credential and account-takeover phrasing seen in the labelled scams.
         "login code", "verification code", "cvv", "pin",
-        "password", "verify now", "verify identity",
+        "password", "verify now", "verify identity", "verify through",
         "will be blocked", "temporarily blocked", "suspended", "reactivate",
+        # Credential-phishing phrasing the vocabulary previously just missed.
+        # Each matches only scams across the whole dataset, in incoming
+        # messages and in history alike ("Chase Security Center: failed login
+        # found. Confirm card PIN at chase-secure-alert.com").
+        "failed login", "will be restricted", "account check",
         "kyc", "security alert", "support alert", "unusual activity",
         "prize money", "jackpot", "you have won",
         "guaranteed returns", "double your money", "work from home income",
@@ -151,6 +156,14 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
         "processing fee", "customs fee", "clearance fee", "delivery fee",
         "reattempt fee",
         "reply with the", "6 digit", "six digit", "gift card",
+        # Financial-detail harvesting. The dataset's own history warns about
+        # exactly this ("please do not share OTP or card details in the family
+        # group"), and three incoming messages ask for it outright.
+        "account number", "card details", "bank details",
+        # Prize bait, alongside the existing "claim prize"/"you have won".
+        # Deliberately absent: the bare word "reward", which a legitimate card
+        # statement uses for "reward points".
+        "claim benefits", "selected for reward",
     ),
 }
 
@@ -160,7 +173,13 @@ DEFAULT_KEYWORDS: Final[Mapping[KeywordCategory, tuple[str, ...]]] = {
 # --------------------------------------------------------------------------- #
 
 #: Regular inflections tolerated on the final word of a keyword.
-_INFLECTION: Final[str] = r"(?:s|es|ed|ing)?"
+#:
+#: ``ly`` matters more than it looks: without it "Call me urgently, I need to
+#: decide in ten minutes" matched no urgency vocabulary at all and was routed
+#: as ordinary group chatter. Across all 537 message bodies in the dataset,
+#: tolerating it produces five new matches and every one of them is
+#: "urgently" - no other keyword acquires an adverb form.
+_INFLECTION: Final[str] = r"(?:s|es|ed|ing|ly)?"
 
 #: Accepted between the words of a multi-word phrase, so a dictionary entry
 #: written with spaces also matches the hyphenated surface form.

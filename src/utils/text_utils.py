@@ -40,6 +40,8 @@ __all__ = [
     "NEGATION_CUES",
     "NEGATION_WINDOW",
     "is_negated",
+    "contains_clock_time",
+    "extract_shortened_links",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -59,10 +61,23 @@ _WWW_URL: Final = re.compile(r"\bwww\.[^\s<>\"')]+", re.IGNORECASE)
 #: Top-level domains recognised in bare (schemeless) links. Scam messages in
 #: this dataset routinely use bare lookalike domains such as
 #: ``amazonpay-delivery.in``, so bare-domain detection is not optional.
+#:
+#: The second row is the URL-shortener TLDs. They matter more than their
+#: obscurity suggests: a shortener hides the destination, which is precisely
+#: why phishing uses one, so ``bit.ly/verify-quick`` is a stronger signal than
+#: most full domains rather than a weaker one. Their absence meant the single
+#: most recognisable shortener in the world parsed as ordinary prose.
+#:
+#: Widening this list was checked against every message body in the dataset
+#: (537 of them, across messages, history and the labelled examples): it
+#: produces exactly one new match, and that match is a real scam link.
 _KNOWN_TLDS: Final[tuple[str, ...]] = (
     "com", "in", "net", "org", "co", "io", "me", "info", "biz", "app",
     "site", "online", "shop", "store", "live", "link", "click", "xyz",
     "top", "vip", "club", "win", "pw", "icu", "cc", "ru", "uk", "us",
+    # Shorteners: bit.ly, ow.ly, cutt.ly, buff.ly, rebrand.ly; goo.gl;
+    # is.gd; rb.gy.
+    "ly", "gl", "gd", "gy",
 )
 
 _BARE_DOMAIN: Final = re.compile(
@@ -409,6 +424,12 @@ def is_negated(text: str, match_start: int, window: int = NEGATION_WINDOW) -> bo
     with a cue word - "no time", "cannot wait", "don't miss" - is never
     treated as negating itself.
 
+    The search also stops at the previous sentence boundary. Negation does not
+    reach across a full stop, and letting it do so inverts the meaning of the
+    text that follows: "Pay today to avoid account lock. Scan the QR and send
+    a screenshot" reads, to a four-word window that ignores the full stop, as
+    though the QR were being warned against rather than pushed.
+
     Args:
         text: The text the match was found in.
         match_start: Character offset where the matched term begins.
@@ -419,9 +440,72 @@ def is_negated(text: str, match_start: int, window: int = NEGATION_WINDOW) -> bo
     """
     if match_start <= 0:
         return False
+    before = text[:match_start]
+    sentence_breaks = list(_SENTENCE_END.finditer(before))
+    if sentence_breaks:
+        before = before[sentence_breaks[-1].end() :]
     # Fold the typographic apostrophe so "don't" tokenises as one word.
-    preceding = _TOKEN.findall(text[:match_start].replace("’", "'"))
+    preceding = _TOKEN.findall(before.replace("’", "'"))
     return any(word.lower() in NEGATION_CUES for word in preceding[-window:])
+
+
+#: An explicit clock time: "7 PM", "9 AM to 11 AM", "7:35", "6.15 a.m.".
+#:
+#: Hours are bounded to 0-23 and minutes to 0-59 so a price ("Rs 11,000") or a
+#: quantity ("1200 sqft") cannot read as a time. The bare-hour form requires an
+#: am/pm marker for the same reason.
+_CLOCK_TIME: Final = re.compile(
+    r"\b(?:[01]?\d|2[0-3])[:.][0-5]\d\s*(?:a\.?m\.?|p\.?m\.?)?\b"
+    r"|\b(?:[01]?\d|2[0-3])\s*(?:a\.?m\.?|p\.?m\.?)\b",
+    re.IGNORECASE,
+)
+
+
+#: Link-shortening services.
+#:
+#: A shortener exists to hide where a link goes. That is convenient in a tweet
+#: and disqualifying in a message asking someone to log in or pay: the
+#: recipient cannot see the destination before clicking, which is exactly the
+#: property phishing needs. Legitimate senders in this dataset link to their
+#: own named domains or tell the reader to open the app.
+_SHORTENER_DOMAINS: Final[frozenset[str]] = frozenset(
+    {
+        "bit.ly", "bitly.com", "tinyurl.com", "goo.gl", "t.co", "ow.ly",
+        "is.gd", "buff.ly", "cutt.ly", "rebrand.ly", "rb.gy", "shorturl.at",
+        "t.ly", "s.id", "tiny.cc", "shorte.st", "adf.ly", "bl.ink", "lnkd.in",
+    }
+)
+
+
+def extract_shortened_links(value: object) -> tuple[str, ...]:
+    """Return the link-shortener domains referenced in the text.
+
+    Args:
+        value: Any value; missing values yield an empty tuple.
+
+    Returns:
+        Matching domains in order of first appearance, deduplicated.
+    """
+    found = [
+        domain
+        for domain in extract_domains(value)
+        # removeprefix, not lstrip: lstrip takes a character set, so it would
+        # eat the leading letters of any domain built from w/., and "www." is
+        # already stripped upstream in any case.
+        if domain.casefold().removeprefix("www.") in _SHORTENER_DOMAINS
+    ]
+    return tuple(dict.fromkeys(found))
+
+
+def contains_clock_time(value: object) -> bool:
+    """Return whether the text names an explicit time of day.
+
+    A stand-in for scheduling language that no vocabulary can cover: "7 PM sync
+    is still on" and "fire alarm test tomorrow 9 AM to 11 AM" announce a
+    scheduled thing without using a single scheduling *word*.
+    """
+    text = _text_of(value)
+    return bool(text) and _CLOCK_TIME.search(text) is not None
 
 
 def contains_payment_symbol(value: object) -> bool:

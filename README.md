@@ -29,9 +29,10 @@ second and needs no API keys, network access or manual steps.
 | Confidence, correct vs incorrect decisions | **0.83 vs 0.59** (gap **+0.24**) |
 | Evidence ids valid and correctly scoped | **77/77** |
 | Evidence whose reaction fits the action | **94%** |
+| Scams delivered to the user across all 110 messages | **0** |
 | Dataset corruptions survived with a complete, valid submission | **40/40** |
 | Voice notes transcribed | **13/13** |
-| Tests | **735 passing** |
+| Tests | **763 passing** |
 | Full run over 110 messages | **~1 second** (1.9 ms/message, linear to 5,500) |
 
 > Measured against the same 30 labelled rows the system was tuned on, so it is
@@ -148,7 +149,7 @@ signals** rather than one blended score, and why Phase 4 combines them with
 | `python main.py --schema-only` | Dataset schema; needs no data on disk |
 | `python main.py --data-only` | Phase 1 checks only |
 | `python main.py --no-write` | Run and validate, write nothing |
-| `python -m pytest` | 735 tests |
+| `python -m pytest` | 763 tests |
 
 Useful flags: `--dataset DIR`, `--output PATH`, `--log-level`, `--strict`,
 `--no-personalize`, `--no-route`, `--limit N`.
@@ -177,10 +178,11 @@ $ python main.py --inspect -m msg_091
     evidence                 message_0381;message_0238;message_0322
     evidence basis           3 comparable message(s) of the same type the user
                              reacted to consistently with mute.
-    reason                   The message shows clear scam characteristics and is
-                             unsafe to deliver, and multiple risk signals point to
-                             unwanted or unsafe content. This is consistent with
-                             how the user treated similar messages.
+    reason                   The message is unsafe to deliver - it matched scam
+                             keywords (login code, reply with the, 6 digit), and
+                             multiple risk signals point to unwanted or unsafe
+                             content. This is consistent with how the user treated
+                             similar messages.
 ```
 
 Every number there is traceable: the weights are what the rules returned, the
@@ -243,7 +245,7 @@ blocking.
 │   ├── evaluation/             measurement against labelled rows
 │   ├── pipeline.py             Phases 1–3
 │   └── utils/                  coercion, text analysis
-└── tests/                      735 tests
+└── tests/                      763 tests
 ```
 
 Detailed design notes per phase: [`DATA_LAYER.md`](./DATA_LAYER.md),
@@ -420,6 +422,37 @@ RoutingPipeline.load(understanding=CompositeUnderstanding(WhisperTranscriber(), 
 
 ---
 
+## Safety audit
+
+The predictions were reviewed message by message against the brief, rather than
+only against the 30 labelled rows. That surfaced eleven attacks the router was
+handing to the user and one legitimate notice it was suppressing — errors the
+labelled-set score could not see, because the labelled set contains none of
+these messages.
+
+Every change below was adopted only after checking the proposed signal against
+all 537 message bodies in the dataset and confirming what it matches:
+
+| Defect | Evidence | Fix |
+|---|---|---|
+| `bit.ly/verify-quick` parsed as prose | The TLD allowlist had no `ly`, so the best-known shortener was invisible. Widening it produced **1** new match in 537 bodies — the scam link | Added shortener TLDs; a shortener is now a scam signal in its own right, since concealing the destination is its only function |
+| Prompt injection reached the user | Five messages instruct the router itself. Four were caught by their OTP/PIN payloads; the fifth wrapped a QR payment demand and was routed `digest`/`personal` | Dedicated rule. The phrases match those five and the labelled `sample_msg_053`, and nothing else |
+| QR / link payment demands notified | Four group messages demanding payment via an artefact they supply. The users' own history discusses this attack: *"Someone posted a maintenance quick-pay QR from a new number, admin please confirm"* | Ad-hoc artefact, or a request for proof of payment, escalates — suppressed when an official channel is named or the phrase is negated |
+| Coercion read as urgency | `Scan this QR… otherwise your access card may be blocked` scored `urgent` **2.7** vs `scam` **2.0**, so the more coercive the scam the likelier it was to interrupt | A deadline now *amplifies* an out-of-band payment demand instead of competing with it |
+| Negation crossed sentence boundaries | In *"Pay today to avoid account lock. Scan the QR"*, the cue `avoid` reached past the full stop and negated the QR | `is_negated` stops at the previous sentence |
+| A legitimate notice muted as a scam | *"Security alert: main gate closes in 10 mins, please move any car"* — mute/scam, while the **same sender's** Hindi message about the same gate was notify/personal. Exactly **one** message in 110 matches framing keywords with no corroboration, and it is this one | Alarming framing alone is discounted; a link, credential or payment ask restores full weight |
+| Announcements typed `promotion` | "7 PM sync is still on" and "fire alarm test tomorrow 9 AM to 11 AM" were called promotions by a rule whose own docstring excludes "scheduling context" the vocabulary could not express | An explicit clock time counts as scheduling context. Genuine listings, which match the labelled `promotion` examples, are unaffected |
+| "Call me urgently" matched no urgency | The inflection group covered `s/es/ed/ing` but not the adverbial `ly`. Across 537 bodies, adding it yields **5** new matches, all of them "urgently" | Added `ly` |
+| Every scam explained identically | 14 rows shared one sentence, which is consistent and useless | The reason now names the specific attack, from the classifier signal that decided it |
+
+Net effect on the 110 predictions: 17 rows changed, **0 scams now reach the
+user**, and the labelled-set score is unchanged at 93.3% — these are errors that
+score was never measuring. `tests/test_safety_regressions.py` pins all of it,
+written against behaviour rather than message ids so the tests keep their
+meaning on a different dataset.
+
+---
+
 ## Degrading instead of failing
 
 A hidden evaluation set will not be as clean as the shipped one, and the
@@ -525,7 +558,7 @@ DecisionEngine(thresholds=Thresholds(heavy_forward_count=12))
 ## Testing
 
 ```bash
-python -m pytest              # 735 passed
+python -m pytest              # 763 passed
 ```
 
 | Suite | Covers |
@@ -538,6 +571,7 @@ python -m pytest              # 735 passed
 | `test_media` | multimodal seam — resolution, providers, the integration claim |
 | `test_whisper` | transcriber, transcript cache, and voice/text equivalence |
 | `test_robustness` | 40 dataset corruptions, degradation, determinism |
+| `test_safety_regressions` | scams the audit found, and the notices it protected |
 | `test_submission` | end-to-end, output contract, CSV, performance |
 | `test_main` | CLI dispatch |
 
